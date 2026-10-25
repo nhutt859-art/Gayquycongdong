@@ -1,0 +1,12 @@
+{
+  "name": "gayquy-platform",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Nền tảng Gây Quỹ Cộng Đồng + AI",
+  "scripts": {
+    "start": "npm --prefix backend start",
+    "build": "npm --prefix backend install",
+    "dev": "npm --prefix backend run dev"
+  }
+}

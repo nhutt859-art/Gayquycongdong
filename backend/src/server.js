@@ -62,8 +62,7 @@ app.use(
       if (isOriginAllowed(origin)) {
         callback(null, true);
       } else {
-        console.warn(`⚠️ [CORS] Từ chối Origin: ${origin}`);
-        callback(new Error(`CORS blocked for origin: ${origin}`));
+        callback(null, false);
       }
     },
     credentials: true,
@@ -137,7 +136,7 @@ async function start() {
 
   const server = app.listen(port, () => {
     console.log(`🚀 API chạy tại http://localhost:${port}/api`);
-    console.log(`   CORS cho phép: ${origins.join(', ')}`);
+    console.log(`   CORS cho phép: ${allowedOrigins.join(', ')}`);
     console.log(`   Health check: http://localhost:${port}/api/health\n`);
   });
 
