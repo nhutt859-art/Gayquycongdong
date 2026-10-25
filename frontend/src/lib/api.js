@@ -1,4 +1,6 @@
-const BASE = import.meta.env.VITE_API_URL || '/api';
+const BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? 'https://gayquy-backend.onrender.com/api' : '/api');
 const TOKEN_KEY = 'gq_token';
 
 export class ApiError extends Error {

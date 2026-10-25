@@ -51,7 +51,8 @@ function deliveryMode() {
 }
 
 function appUrl() {
-  const raw = process.env.APP_URL || process.env.CORS_ORIGIN || 'http://localhost:5173';
+  const fallback = process.env.NODE_ENV === 'production' ? 'https://dacntt-web.vercel.app' : 'http://localhost:5173';
+  const raw = process.env.APP_URL || process.env.CORS_ORIGIN || fallback;
   return String(raw).split(',')[0].trim().replace(/\/+$/, '');
 }
 

@@ -27,12 +27,50 @@ if (!process.env.SMTP_HOST || !process.env.SMTP_FROM) {
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
-const origins = String(process.env.CORS_ORIGIN || 'http://localhost:5173')
+
+const defaultAllowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4173',
+  'https://dacntt-web.vercel.app',
+  'https://gayquy-backend.onrender.com',
+];
+
+const envOrigins = String(process.env.CORS_ORIGIN || '')
   .split(',')
-  .map((s) => s.trim())
+  .map((s) => s.trim().replace(/\/+$/, ''))
   .filter(Boolean);
 
-app.use(cors({ origin: origins, credentials: false }));
+const allowedOrigins = Array.from(new Set([...defaultAllowedOrigins, ...envOrigins]));
+
+function isOriginAllowed(origin) {
+  if (!origin) return true; // Cho phép curl, Postman, server-to-server
+  const clean = origin.replace(/\/+$/, '');
+  if (allowedOrigins.includes(clean)) return true;
+  // Cho phép tất cả subdomain của Vercel (kể cả preview URLs)
+  if (/^https:\/\/.*\.vercel\.app$/.test(clean)) return true;
+  // Cho phép tất cả domain của Render
+  if (/^https:\/\/.*\.onrender\.com$/.test(clean)) return true;
+  // Cho phép localhost trên mọi cổng
+  if (/^http:\/\/localhost(:\d+)?$/.test(clean)) return true;
+  return false;
+}
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`⚠️ [CORS] Từ chối Origin: ${origin}`);
+        callback(new Error(`CORS blocked for origin: ${origin}`));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  }),
+);
 app.use(express.json({ limit: '2mb' }));
 
 if (process.env.NODE_ENV !== 'production') {
