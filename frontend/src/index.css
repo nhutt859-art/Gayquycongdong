@@ -1,0 +1,13 @@
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { @apply bg-slate-50 text-slate-800; font-family: 'Be Vietnam Pro', Inter, system-ui, sans-serif; }
+.card { @apply bg-white rounded-2xl shadow-sm border border-slate-200; }
+.btn-primary { @apply bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-xl transition; }
+.btn-ghost { @apply border border-slate-300 hover:bg-slate-100 px-4 py-2 rounded-xl font-medium transition; }
+.input { @apply w-full border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500; }
+.input-error { @apply border-red-400 focus:border-red-500 focus:ring-red-500; }
+.badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold; }
+.link { @apply text-emerald-700 hover:underline; }

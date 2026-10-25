@@ -1,0 +1,26 @@
+{
+  "name": "crowdfunding-api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "API cho nền tảng Gây Quỹ Cộng Đồng + AI (PostgreSQL)",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:check": "node scripts/db-check.js",
+    "db:migrate-auth": "node scripts/migrate-auth.js",
+    "db:setup": "node scripts/setup-db.js",
+    "db:seed": "node scripts/setup-db.js --seed-only",
+    "smoke": "node scripts/smoke.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^7.0.13",
+    "pg": "^8.16.3",
+    "zod": "^4.1.12"
+  }
+}
