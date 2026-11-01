@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { pool } from './db.js';
+import { isMailConfigured, mailConfigWarning, mailFrom, mailProvider } from './services/mailer.js';
 import { ApiError } from './lib/errors.js';
 import authRoutes from './routes/auth.js';
 import meRoutes from './routes/me.js';
@@ -19,10 +20,18 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 20) {
   console.error('   Tạo bằng: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"\n');
   process.exit(1);
 }
-if (!process.env.SMTP_HOST || !process.env.SMTP_FROM) {
-  console.warn('\n⚠️  Chưa cấu hình SMTP (SMTP_HOST/SMTP_FROM).');
+if (!isMailConfigured()) {
+  console.warn('\n⚠️  Chưa cấu hình dịch vụ email.');
   console.warn('   Email xác thực và đặt lại mật khẩu sẽ chỉ được in ra console.');
-  console.warn('   Điền SMTP trong backend/.env để gửi email thật.\n');
+  console.warn('   Thêm BREVO_API_KEY + MAIL_FROM (hoặc RESEND_API_KEY/SENDGRID_API_KEY) để gửi thật.');
+  console.warn('   Lưu ý: Render free chặn SMTP 25/465/587 — dùng HTTP API ở trên.');
+  const warning = mailConfigWarning();
+  if (warning) console.warn(`⚠️  ${warning}`);
+  console.warn('');
+} else {
+  console.log(`📧 Dịch vụ email: ${mailProvider()} — from: ${mailFrom()}`);
+  const warning = mailConfigWarning();
+  if (warning) console.warn(`⚠️  ${warning}`);
 }
 
 const app = express();
@@ -91,6 +100,15 @@ app.get('/api/health', async (_req, res) => {
   } catch (err) {
     res.status(503).json({ ok: false, error: err.message });
   }
+});
+
+app.get('/api/health/mail', (_req, res) => {
+  res.json({
+    ok: isMailConfigured(),
+    provider: mailProvider(),
+    from: mailFrom() || null,
+    warning: mailConfigWarning() || undefined,
+  });
 });
 
 app.use('/api/auth', authRoutes);

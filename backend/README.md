@@ -121,24 +121,78 @@ Sau đó vẫn chạy `npm run db:check` → `npm run db:setup` → `npm run dev
 | `APP_URL` | — | lấy `CORS_ORIGIN` | URL frontend dùng trong liên kết email |
 | `PGSSL` | — | `require` | `disable` với Postgres local |
 | `PG_POOL_MAX` | — | `5` | Giữ thấp với Neon free |
-| `SMTP_HOST` | — | rỗng | Để trống = in liên kết email ra console (dev) |
+| `MAIL_FROM` | — | lấy `SMTP_FROM` | Địa chỉ gửi, VD `GayQuy+ <no-reply@ten-mien>` |
+| `MAIL_PROVIDER` | — | tự phát hiện | Chọn cứng: `brevo`, `resend`, `sendgrid`, `smtp`, `console` |
+| `BREVO_API_KEY` | — | rỗng | Gửi qua Brevo HTTP API — 300 email/ngày |
+| `RESEND_API_KEY` | — | rỗng | Gửi qua Resend HTTP API |
+| `SENDGRID_API_KEY` | — | rỗng | Gửi qua SendGrid HTTP API |
+| `SMTP_HOST` | — | rỗng | Để trống = in email ra console (dev); Render free chặn SMTP |
 | `SMTP_PORT` | — | `587` | Dùng `465` nếu SSL |
 | `SMTP_SECURE` | — | `false` | `true` với cổng 465 |
-| `SMTP_USER` | — | rỗng | Tài khoản SMTP / `resend` |
+| `SMTP_USER` | — | rỗng | Tài khoản SMTP |
 | `SMTP_PASS` | — | rỗng | App Password hoặc API key |
-| `SMTP_FROM` | — | rỗng | VD `GayQuy+ <no-reply@ten-mien>` |
+| `SMTP_FROM` | — | rỗng | Fallback nếu không có `MAIL_FROM` |
 | `EMAIL_VERIFICATION_TTL_MINUTES` | — | `1440` | Hạn liên kết xác thực email |
-| `PASSWORD_RESET_TTL_MINUTES` | — | `60` | Hạn liên kết đặt lại mật khẩu |
+| `PASSWORD_RESET_TTL_MINUTES` | — | `60` | Hạn mã OTP đặt lại mật khẩu |
+| `DEV_SHOW_OTP` | — | `false` | Chỉ local: trả OTP khi chưa cấu hình email |
 
 ### 4.1 Email xác thực & đặt lại mật khẩu
 
 - Đăng ký mới tạo tài khoản **chưa xác thực**; backend gửi liên kết `${APP_URL}/xac-thuc-email?token=...`.
 - Chưa xác thực email thì `POST /auth/login` trả `403` với `details.code = EMAIL_NOT_VERIFIED`.
-- Quên mật khẩu gửi liên kết `${APP_URL}/dat-lai-mat-khau?token=...`, hết hạn sau 60 phút.
+- Quên mật khẩu gửi **mã OTP 6 chữ số** qua email; người dùng nhập OTP trên trang web. Mã hết hạn sau 60 phút.
 - Token chỉ lưu dạng SHA-256, dùng một lần. Đặt lại mật khẩu tăng `users.token_version` nên mọi JWT cũ bị từ chối.
-- Chưa cấu hình SMTP: nội dung email + liên kết được in ra console backend; API trả thêm `dev_verification_url` / `dev_reset_url` khi `NODE_ENV !== 'production'`.
+- Chưa cấu hình email: nội dung email + OTP được in ra console backend; API chỉ trả `dev_otp` khi chạy local (không phải Render) và chưa cấu hình email.
+- Kiểm tra nhanh cấu hình trên server: `GET /api/health/mail` → `{ ok, provider, from }`.
 
-**Gmail**
+> **Quan trọng khi deploy Render:** từ 26/09/2025, Render **free** chặn outbound SMTP cổng 25/465/587. Gmail SMTP sẽ timeout dù cấu hình đúng. Hãy dùng HTTP API (Brevo/Resend/SendGrid) — các dịch vụ này gửi qua HTTPS cổng 443.
+
+**Brevo — khuyên dùng (300 email/ngày, xác minh 1 địa chỉ gửi)**
+
+1. Tạo tài khoản tại <https://www.brevo.com>.
+2. **Senders & IP → Senders** → thêm địa chỉ gửi (có thể dùng Gmail của bạn) và bấm xác minh trong email.
+3. **SMTP & API → API Keys** → tạo key.
+4. Điền `backend/.env` (local) và **Render → Environment** (production):
+
+```dotenv
+BREVO_API_KEY=xkeysib-xxxxxxxx
+MAIL_FROM=GayQuy+ <email-da-xac-minh@gmail.com>
+```
+
+**Resend**
+
+```dotenv
+RESEND_API_KEY=re_xxxxxxxx
+MAIL_FROM=GayQuy+ <no-reply@ten-mien-cua-ban>
+```
+
+Lưu ý: Resend yêu cầu xác minh tên miền nếu gửi cho người khác; chưa xác minh thì chỉ gửi được tới email chủ tài khoản.
+
+**SendGrid — không cần tên miền, chỉ cần xác minh Single Sender**
+
+1. Tạo tài khoản tại <https://signup.sendgrid.com>.
+2. Vào **Settings → Sender Authentication → Single Sender Verification** → **Create New Sender**.
+3. Điền From Name (`GayQuy+`), From Email (Gmail của bạn), Reply To, thông tin công ty/địa chỉ → **Create**.
+4. Mở email SendGrid gửi tới hộp thư đó, bấm **Verify Single Sender**.
+5. Vào **Settings → API Keys → Create API Key**:
+   - Chọn **Restricted Access**.
+   - Mục **Mail Send** chọn **Full Access**.
+   - Copy key `SG....` (chỉ hiện một lần).
+6. Điền `backend/.env` (local) và **Render → Environment** (production):
+
+```dotenv
+MAIL_PROVIDER=sendgrid
+SENDGRID_API_KEY=SG.xxxxxxxx
+MAIL_FROM=GayQuy+ <email-da-xac-minh@gmail.com>
+```
+
+`MAIL_FROM` phải trùng đúng email đã xác minh ở bước 3. Nếu đã có `BREVO_API_KEY`/`RESEND_API_KEY` từ trước, `MAIL_PROVIDER=sendgrid` sẽ ép dùng SendGrid; hoặc xoá các key kia.
+
+> SendGrid free hiện là **trial 100 email/ngày trong 60 ngày**; hết trial cần nâng cấp. Nếu cần miễn phí lâu dài, dùng Brevo (300 email/ngày) hoặc Resend + tên miền riêng.
+>
+> SendGrid có thể tạm chặn tài khoản mới trong lúc review. Nếu đăng ký gặp lỗi “You are not authorized to access this account”, hãy chuyển sang Brevo — không nên tạo nhiều tài khoản SendGrid liên tiếp.
+
+**Gmail SMTP — chỉ dùng local/VPS hoặc Render trả phí**
 
 1. Bật xác thực 2 bước cho tài khoản Google.
 2. Vào <https://myaccount.google.com/apppasswords> tạo App Password 16 ký tự.
@@ -153,18 +207,7 @@ SMTP_PASS=app-password-16-ky-tu
 SMTP_FROM=GayQuy+ <your.email@gmail.com>
 ```
 
-**Resend** (gửi từ tên miền đã xác minh):
-
-```dotenv
-SMTP_HOST=smtp.resend.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=resend
-SMTP_PASS=re_xxxxxxxx
-SMTP_FROM=GayQuy+ <no-reply@ten-mien-cua-ban>
-```
-
-Sau khi sửa `.env`, khởi động lại backend. Database cũ chưa có cột auth thì chạy `npm run db:migrate-auth` (không xoá dữ liệu).
+Thứ tự ưu tiên khi không đặt `MAIL_PROVIDER`: `BREVO_API_KEY` → `RESEND_API_KEY` → `SENDGRID_API_KEY` → SMTP. Nếu đã đặt API key thì không cần xoá SMTP. Sau khi sửa biến môi trường, **redeploy/restart** backend. Database cũ chưa có cột auth thì chạy `npm run db:migrate-auth` (không xoá dữ liệu).
 
 ## 5. Script
 
@@ -176,6 +219,7 @@ Sau khi sửa `.env`, khởi động lại backend. Database cũ chưa có cột
 | `npm run db:migrate-auth` | Thêm cột xác thực email / reset mật khẩu vào DB cũ (không xoá dữ liệu) |
 | `npm run db:setup` | DROP + CREATE schema rồi seed 10 dự án |
 | `npm run db:seed` | Chỉ nạp lại seed (không DROP bảng) |
+| `npm run mail:test -- email@example.com` | Gửi email test qua dịch vụ đang cấu hình |
 | `npm run smoke` | 69 kiểm tra API; đặt `API_URL` nếu API không ở cổng 4000 |
 
 Ví dụ smoke test với API cổng 4100:

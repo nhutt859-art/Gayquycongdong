@@ -8,7 +8,7 @@ import { parse } from '../lib/validate.js';
 import { USER_PUBLIC_COLUMNS, mapUser } from '../lib/mappers.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
 import { notify } from '../services/notifications.js';
-import { isMailConfigured, sendMail } from '../services/mailer.js';
+import { isMailConfigured, mailProvider, sendMail } from '../services/mailer.js';
 import { expiryFromNow, hashToken, newToken, newOtp } from '../lib/tokens.js';
 
 const router = Router();
@@ -41,13 +41,16 @@ const resetPasswordSchema = z.object({
   password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự.').max(72),
 });
 
-/** Chế độ dev: chưa có SMTP thì trả liên kết trực tiếp để test. */
+/** Chế độ dev: chưa có email thì trả OTP/liên kết trực tiếp để test. */
 function devLinkEnabled() {
+  if (String(process.env.DEV_SHOW_OTP || '').toLowerCase() === 'true') return true;
+  // Không bao giờ trả OTP trên Render, kể cả khi quên đặt NODE_ENV=production.
+  if (process.env.RENDER) return false;
   return !isMailConfigured() && process.env.NODE_ENV !== 'production';
 }
 
 function deliveryMode() {
-  return isMailConfigured() ? 'smtp' : 'console';
+  return mailProvider();
 }
 
 function appUrl() {
@@ -194,7 +197,7 @@ async function sendResetEmail(user) {
   try {
     const result = await sendMail({
       to: user.email,
-      subject: `[GâyQuỹ+] Mã xác nhận đặt lại mật khẩu của bạn là: ${otp}`,
+      subject: '[GâyQuỹ+] Mã xác nhận đặt lại mật khẩu',
       text,
       html,
     });
@@ -373,11 +376,16 @@ router.post(
       otp = mail.otp;
     }
 
+    const configured = isMailConfigured();
     res.json({
       ok: true,
       reset_sent: delivered,
       delivery: deliveryMode(),
-      message: 'Mã xác nhận (OTP) 6 chữ số đã được gửi tới email của bạn. Vui lòng kiểm tra hộp thư (cả mục Spam).',
+      mail_ready: configured,
+      message: configured
+        ? 'Nếu email tồn tại trong hệ thống, mã xác nhận (OTP) 6 chữ số đã được gửi. Vui lòng kiểm tra hộp thư (cả mục Spam).'
+        : 'Máy chủ chưa cấu hình dịch vụ gửi email. Vui lòng liên hệ quản trị viên.',
+      // Chỉ trả OTP khi chạy local và chưa cấu hình email. Không bao giờ trả OTP ở production.
       dev_otp: devLinkEnabled() ? otp : undefined,
     });
   }),

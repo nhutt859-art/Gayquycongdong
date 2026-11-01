@@ -26,6 +26,7 @@ export function ForgotPassword() {
     e?.preventDefault();
     setError('');
     setInfo('');
+    setDevOtp('');
     if (!email.trim()) {
       setError('Vui lòng nhập địa chỉ email.');
       return;
@@ -33,8 +34,23 @@ export function ForgotPassword() {
     setBusy(true);
     try {
       const res = await forgotPassword(email);
-      setInfo(res.message || 'Mã xác nhận (OTP) đã được gửi đến email của bạn.');
+
+      // Chưa cấu hình dịch vụ email trên server (thường gặp khi deploy Render free).
+      if (res.mail_ready === false && !res.dev_otp) {
+        setError(
+          res.message ||
+            'Máy chủ chưa cấu hình dịch vụ gửi email. Vui lòng liên hệ quản trị viên.',
+        );
+        return;
+      }
+
+      setInfo(res.message || 'Nếu email tồn tại, mã xác nhận (OTP) đã được gửi đến hộp thư của bạn.');
       if (res.dev_otp) setDevOtp(res.dev_otp);
+      if (res.mail_ready && res.reset_sent === false) {
+        setInfo(
+          'Nếu email tồn tại trong hệ thống, mã xác nhận đã được gửi. Không nhận được sau 1–2 phút? Hãy kiểm tra mục Spam hoặc bấm “Gửi lại mã”.',
+        );
+      }
       setStep('verify');
     } catch (err) {
       setError(err.message);

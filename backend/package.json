@@ -11,6 +11,7 @@
     "db:migrate-auth": "node scripts/migrate-auth.js",
     "db:setup": "node scripts/setup-db.js",
     "db:seed": "node scripts/setup-db.js --seed-only",
+    "mail:test": "node scripts/test-mail.js",
     "smoke": "node scripts/smoke.js"
   },
   "dependencies": {

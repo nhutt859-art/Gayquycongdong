@@ -116,7 +116,7 @@ Trang đăng nhập có nút đăng nhập nhanh 4 vai trò chính.
 | Lớp | Công nghệ |
 |---|---|
 | Frontend | React 19, Vite 8, React Router 7, Tailwind CSS 3, Oxlint |
-| Backend | Node.js, Express 5, `pg`, Zod, JWT (`jsonwebtoken`), bcrypt, Nodemailer (SMTP) |
+| Backend | Node.js, Express 5, `pg`, Zod, JWT (`jsonwebtoken`), bcrypt, Nodemailer (SMTP local) + Brevo/Resend/SendGrid HTTP API |
 | Database | PostgreSQL 15+ (Neon), 16 bảng, trigger đồng bộ số tiền |
 | Kiểm thử | `scripts/smoke.js` (69 check API), Puppeteer (luồng UI chính) |
 
@@ -138,7 +138,8 @@ Kết quả hiện tại: **69/69 API check pass**, build thành công, lint ch�
 ## Phạm vi & lưu ý
 
 - Thanh toán, KYC, AI đều **mô phỏng** phục vụ đồ án; không kết nối cổng thanh toán/OCR/mô hình ML thật.
-- Email xác thực / đặt lại mật khẩu dùng SMTP thật (Nodemailer). Khi chưa điền SMTP trong `backend/.env`, liên kết được in ra console backend để test.
+- Email xác thực / đặt lại mật khẩu dùng Brevo/Resend/SendGrid HTTP API hoặc SMTP (Nodemailer). Khi chưa cấu hình email trong `backend/.env`, nội dung được in ra console backend để test.
+- **Deploy Render free:** Render chặn outbound SMTP 25/465/587, nên đặt `BREVO_API_KEY` + `MAIL_FROM` trong Render → Environment (xem `backend/README.md`).
 - JWT lưu `localStorage`; logout xoá token phía client. Đặt lại mật khẩu sẽ tăng `token_version` và vô hiệu hoá mọi JWT cũ.
 - Không commit `backend/.env`.
 - Nếu dùng OneDrive, nên tạm dừng sync khi `npm install` để tránh lock file.
