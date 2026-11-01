@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { pool } from './db.js';
-import { isMailConfigured, mailConfigWarning, mailFrom, mailProvider } from './services/mailer.js';
+import { isMailConfigured, mailConfigWarning, mailFrom, mailProvider, verifyMailConfig } from './services/mailer.js';
 import { ApiError } from './lib/errors.js';
 import authRoutes from './routes/auth.js';
 import meRoutes from './routes/me.js';
@@ -102,13 +102,20 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-app.get('/api/health/mail', (_req, res) => {
-  res.json({
+app.get('/api/health/mail', async (req, res) => {
+  const payload = {
     ok: isMailConfigured(),
     provider: mailProvider(),
     from: mailFrom() || null,
     warning: mailConfigWarning() || undefined,
-  });
+  };
+
+  // ?verify=1: kiểm tra thêm API key + sender đã xác minh bên Brevo.
+  if (String(req.query.verify || '') === '1') {
+    payload.verify = await verifyMailConfig();
+  }
+
+  res.json(payload);
 });
 
 app.use('/api/auth', authRoutes);

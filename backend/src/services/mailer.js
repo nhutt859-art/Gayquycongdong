@@ -110,7 +110,14 @@ function getTransporter() {
 
 /** Tách `GayQuy+ <no-reply@example.com>` thành { name, email }. */
 function parseFrom(value) {
-  const raw = String(value || '').trim();
+  let raw = String(value || '').trim();
+  // Một số dashboard/env UI lưu cả cặp ngoặc kép bao quanh giá trị.
+  if (
+    (raw.startsWith('"') && raw.endsWith('"')) ||
+    (raw.startsWith("'") && raw.endsWith("'"))
+  ) {
+    raw = raw.slice(1, -1).trim();
+  }
   const match = raw.match(/^(.*?)<([^>]+)>$/);
   if (match) {
     return {
@@ -119,6 +126,36 @@ function parseFrom(value) {
     };
   }
   return { email: raw };
+}
+
+async function getJson(url, headers, provider) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { accept: 'application/json', ...headers },
+      signal: controller.signal,
+    });
+  } catch (err) {
+    const reason = err?.name === 'AbortError' ? `quá ${HTTP_TIMEOUT_MS}ms` : err.message;
+    throw new Error(`${provider}: không kết nối được API (${reason}).`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`${provider}: HTTP ${res.status} — ${text.slice(0, 500) || res.statusText}`);
+  }
+
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
 }
 
 async function postJson(url, headers, payload, provider) {
@@ -213,6 +250,61 @@ async function sendViaSendgrid({ to, subject, text, html }) {
     transport: 'sendgrid',
     messageId: headers.get('x-message-id') || undefined,
   };
+}
+
+/**
+ * Kiểm tra nhanh cấu hình dịch vụ email. Hiện hỗ trợ Brevo:
+ * xác minh API key và địa chỉ MAIL_FROM có nằm trong danh sách sender đã kích hoạt không.
+ * Không trả về API key hay toàn bộ danh sách sender.
+ */
+export async function verifyMailConfig() {
+  const provider = mailProvider();
+  if (provider === 'console') {
+    return { provider, configured: false, error: 'Chưa cấu hình dịch vụ email.' };
+  }
+  if (!mailFrom()) {
+    return { provider, configured: false, error: 'Thiếu MAIL_FROM (hoặc SMTP_FROM).' };
+  }
+  if (provider !== 'brevo') {
+    return {
+      provider,
+      configured: isMailConfigured(),
+      note: 'Chỉ kiểm tra tự động được sender của Brevo.',
+    };
+  }
+
+  const key = env('BREVO_API_KEY');
+  if (!key) {
+    return { provider, configured: false, error: 'Thiếu BREVO_API_KEY.' };
+  }
+
+  try {
+    const data = await getJson(
+      'https://api.brevo.com/v3/senders',
+      { 'api-key': key },
+      'Brevo',
+    );
+    const list = Array.isArray(data?.senders) ? data.senders : [];
+    const from = parseFrom(mailFrom()).email.toLowerCase();
+    const sender = list.find((s) => String(s.email || '').toLowerCase() === from);
+
+    return {
+      provider,
+      configured: true,
+      from,
+      sender_found: Boolean(sender),
+      sender_verified: Boolean(sender && sender.active === true),
+      sender_count: list.length,
+    };
+  } catch (err) {
+    return {
+      provider,
+      configured: true,
+      from: parseFrom(mailFrom()).email,
+      sender_verified: false,
+      error: err.message,
+    };
+  }
 }
 
 /**

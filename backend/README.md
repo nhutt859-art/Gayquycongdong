@@ -144,6 +144,7 @@ Sau đó vẫn chạy `npm run db:check` → `npm run db:setup` → `npm run dev
 - Token chỉ lưu dạng SHA-256, dùng một lần. Đặt lại mật khẩu tăng `users.token_version` nên mọi JWT cũ bị từ chối.
 - Chưa cấu hình email: nội dung email + OTP được in ra console backend; API chỉ trả `dev_otp` khi chạy local (không phải Render) và chưa cấu hình email.
 - Kiểm tra nhanh cấu hình trên server: `GET /api/health/mail` → `{ ok, provider, from }`.
+- Kiểm tra API key + sender Brevo đã xác minh chưa: `GET /api/health/mail?verify=1` → `{ verify: { sender_found, sender_verified, ... } }`.
 
 > **Quan trọng khi deploy Render:** từ 26/09/2025, Render **free** chặn outbound SMTP cổng 25/465/587. Gmail SMTP sẽ timeout dù cấu hình đúng. Hãy dùng HTTP API (Brevo/Resend/SendGrid) — các dịch vụ này gửi qua HTTPS cổng 443.
 
