@@ -28,7 +28,7 @@ const client = new Client({
 const TABLES = [
   'users', 'categories', 'projects', 'project_collaborators', 'rewards', 'pledges',
   'transactions', 'project_updates', 'comments', 'user_interests', 'ai_recommendations',
-  'ai_predictions', 'fraud_flags', 'reports', 'notifications', 'follows',
+  'ai_predictions', 'ai_model_versions', 'fraud_flags', 'reports', 'notifications', 'follows',
 ];
 
 try {
@@ -52,7 +52,7 @@ try {
     console.log(`⚠️  Thiếu ${missing.length} bảng: ${missing.join(', ')}`);
     console.log('   → Chạy: npm run db:setup');
   } else {
-    console.log('✅ Đủ 16 bảng theo thiết kế.');
+    console.log('✅ Đủ 17 bảng theo thiết kế.');
   }
 
   if (!missing.length) {

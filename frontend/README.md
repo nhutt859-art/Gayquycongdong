@@ -32,20 +32,17 @@ Có thể tạo `frontend/.env.local`:
 VITE_API_URL=/api
 ```
 
-## 3. Tài khoản demo
+## 3. Tài khoản thử nghiệm
 
 Mật khẩu chung: **`123456`**
 
 | Email | Vai trò |
 |---|---|
-| `admin@demo.vn` | Quản trị viên |
-| `backer@demo.vn` | Nhà tài trợ |
-| `owner@demo.vn` | Chủ dự án |
-| `collab@demo.vn` | Cộng tác viên |
-| `quy@demo.vn`, `yte@demo.vn` | Chủ dự án khác |
-| `lan@demo.vn`, `hung@demo.vn`, `thao@demo.vn` | Nhà tài trợ khác |
+| `minhanh.nguyen@gayquy.vn` | Nhà tài trợ, KYC đã xác thực |
+| `thu.ha.le@gayquy.vn` | Nhà tài trợ, KYC đã xác thực |
+| `hoang.nam.tran@gayquy.vn` | Chủ dự án, KYC đã xác thực |
 
-Trang `/dang-nhap` có nút đăng nhập nhanh cho 4 vai trò chính. Tài khoản mới đăng ký sẽ được chuyển qua chọn sở thích; KYC demo tự xác thực trong trang cá nhân.
+Bộ dữ liệu thực tế hơn được nạp bằng `npm run db:seed:realistic -- --apply` ở backend. Tài khoản admin production dùng tài khoản thật, không đưa mật khẩu vào repository. Tài khoản mới đăng ký sẽ được chuyển qua chọn sở thích; KYC mô phỏng tự xác thực trong trang cá nhân.
 
 ## 4. Cấu trúc
 
@@ -54,7 +51,7 @@ frontend/
 ├── public/                 # favicon, icons
 ├── src/
 │   ├── components/
-│   │   ├── ui.jsx          # Button, Card, Modal, AIBox, ProjectCard, ...
+│   │   ├── ui.jsx          # Button, Card, Modal, AIBox, PredictionExplain, FraudEvidenceCard, ModelCard, ...
 │   │   └── RequireAuth.jsx # chặn route theo đăng nhập/vai trò
 │   ├── context/AppContext.jsx
 │   ├── lib/
@@ -103,7 +100,8 @@ frontend/
 - Gặp `401`, app xoá phiên và phát sự kiện để điều hướng về đăng nhập.
 - Đăng xuất chỉ xoá token phía client (JWT stateless); API `/auth/logout` vẫn tồn tại nhưng không cần gọi.
 - Sau khi tài trợ/KYC, app refresh lại session + thông báo để số liệu đúng ngay.
-- Thanh toán, KYC và AI đều là mô phỏng phục vụ đồ án; xem `backend/README.md`.
+- Thanh toán và KYC là mô phỏng phục vụ đồ án. AI dùng logistic regression thật cho dự đoán thành công, gợi ý dựa trên hành vi và kiểm chứng gian lận dựa trên bằng chứng; xem `backend/README.md` và `README.md` ở thư mục gốc.
+- Các trang dự án hiển thị đóng góp của từng tín hiệu dự đoán; trang chủ hiển thị lý do gợi ý và cách tính điểm; trang quản lý/admin hiển thị bằng chứng gian lận và model card.
 
 ## 7. Build & kiểm tra
 

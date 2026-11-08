@@ -5,8 +5,10 @@ import { useApp } from '../context/AppContext';
 import {
   AIBox,
   ErrorState,
+  FraudEvidenceCard,
   Loading,
   Modal,
+  PredictionExplain,
   Progress,
   ProjectCover,
   Spinner,
@@ -181,7 +183,6 @@ export default function ProjectDetail() {
   if (!project) return null;
 
   const isOwner = project.my_role === 'owner';
-  const aiScore = Math.round(Number(project.ai_success_score || 0));
   const canDonate = project.can_pledge;
   const ended = daysLeft(project.end_date) === 'Đã kết thúc';
   const donateTarget = `/tai-tro/${project.id}`;
@@ -243,20 +244,24 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          <AIBox variant={aiScore >= 70 ? 'success' : aiScore >= 45 ? 'info' : 'warn'}>
-            <b>AI dự đoán khả năng thành công: {aiScore}%</b>{' '}
-            {project.prediction?.model_version ? `(mô hình ${project.prediction.model_version})` : ''}.
-            <div className="mt-1">
-              {aiScore >= 70
-                ? 'Tín hiệu tích cực: mục tiêu hợp lý, có gói tri ân và mô tả rõ ràng. Hãy đăng cập nhật đều đặn để giữ đà.'
-                : aiScore >= 45
-                  ? 'Tiềm năng ở mức trung bình. Nên bổ sung gói tri ân nhỏ, tăng tần suất cập nhật và chia sẻ rộng hơn.'
-                  : 'Rủi ro cao: cần cải thiện mô tả, bổ sung gói tri ân và kiểm chứng thông tin tổ chức trước khi mở rộng.'}
-            </div>
-            <div className="mt-1 text-xs text-slate-500">
-              Điểm rủi ro gian lận: {Math.round(Number(project.fraud_risk_score))}% · Đây là mô hình heuristic phục vụ đồ án.
-            </div>
-          </AIBox>
+          <PredictionExplain prediction={project.prediction} fallbackScore={project.ai_success_score} />
+
+          {project.can_manage ? (
+            <FraudEvidenceCard
+              flags={project.fraud_flags}
+              riskScore={project.fraud_risk_score}
+              title="Kiểm chứng gian lận của dự án"
+            />
+          ) : (
+            <AIBox variant={Number(project.fraud_risk_score) >= 60 ? 'warn' : 'info'}>
+              <b>Kiểm chứng rủi ro: {Math.round(Number(project.fraud_risk_score))}%</b>
+              <div className="mt-1 text-xs">
+                {Number(project.fraud_risk_score) >= 60
+                  ? 'Dự án đang được quản trị viên xem xét thêm. Bạn có thể báo cáo nếu phát hiện dấu hiệu bất thường.'
+                  : 'Hệ thống chưa ghi nhận tín hiệu gian lận nổi bật từ dữ liệu công khai của dự án.'}
+              </div>
+            </AIBox>
+          )}
 
           <div className="card p-5">
             <div className="mb-3 flex flex-wrap gap-2">

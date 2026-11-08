@@ -1,34 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
-import { AIBox, PageHeader, ProjectCover, Spinner } from '../components/ui';
+import {
+  AIBox,
+  FraudEvidenceCard,
+  PageHeader,
+  PredictionExplain,
+  ProjectCover,
+  Spinner,
+} from '../components/ui';
 import { addDaysISO, todayISO, vnd } from '../lib/format';
 
 const EMOJIS = ['🌱', '🌊', '🎒', '💧', '🏮', '📚', '🚑', '🧵', '🌾', '❤️', '🏫', '🐾'];
-
-const CATEGORY_BONUS = { 'Giáo dục': 12, 'Y tế': 8, 'Môi trường': 6, 'Văn hoá': 4, 'Khởi nghiệp': -4 };
-
-function estimateScore({ goal, categoryName, rewardsCount, description, start, end }) {
-  let score = 55;
-  score += CATEGORY_BONUS[categoryName] || 0;
-  const goalNumber = Number(goal) || 0;
-  if (goalNumber <= 150_000_000) score += 12;
-  else if (goalNumber <= 300_000_000) score += 8;
-  else if (goalNumber <= 500_000_000) score += 3;
-  else if (goalNumber <= 800_000_000) score -= 6;
-  else score -= 14;
-  if (rewardsCount >= 3) score += 7;
-  else if (rewardsCount === 2) score += 4;
-  else if (rewardsCount === 0) score -= 5;
-  if (description.length >= 220) score += 6;
-  else if (description.length >= 120) score += 3;
-  else if (description.length < 60) score -= 6;
-  const duration = Math.max(1, Math.ceil((Date.parse(end) - Date.parse(start)) / 86_400_000));
-  if (duration <= 60) score += 3;
-  else if (duration > 120) score -= 6;
-  return Math.max(5, Math.min(95, Math.round(score)));
-}
 
 const blankReward = () => ({ title: '', description: '', min_amount: '', quantity_available: 50 });
 
@@ -50,6 +34,12 @@ export default function CreateProject() {
     cover_image_url: '',
   });
   const [rewards, setRewards] = useState([blankReward()]);
+  const [estimate, setEstimate] = useState(null);
+  const [estimateLoading, setEstimateLoading] = useState(false);
+  const [estimateError, setEstimateError] = useState('');
+  const [createdPrediction, setCreatedPrediction] = useState(null);
+  const [createdFraud, setCreatedFraud] = useState(null);
+  const estimateRequest = useRef(0);
 
   const categoryId = form.category_id || categories[0]?.id || '';
   const categoryName = categories.find((c) => c.id === categoryId)?.name || '';
@@ -59,14 +49,39 @@ export default function CreateProject() {
     [rewards],
   );
 
-  const score = estimateScore({
-    goal: form.goal_amount,
-    categoryName,
-    rewardsCount: filledRewards.length,
-    description: form.description,
-    start: form.start_date,
-    end: form.end_date,
-  });
+  useEffect(() => {
+    if (!categoryId || !form.goal_amount || Number(form.goal_amount) < 100000) {
+      setEstimate(null);
+      setEstimateError('');
+      setEstimateLoading(false);
+      return undefined;
+    }
+    const requestId = estimateRequest.current + 1;
+    estimateRequest.current = requestId;
+    const timer = setTimeout(async () => {
+      setEstimateLoading(true);
+      setEstimateError('');
+      try {
+        const data = await api.post('/ai/estimate', {
+          category_id: categoryId,
+          goal_amount: Number(form.goal_amount),
+          description: form.description.trim(),
+          rewards_count: filledRewards.length,
+          start_date: form.start_date,
+          end_date: form.end_date,
+        });
+        if (estimateRequest.current === requestId) setEstimate(data?.prediction || null);
+      } catch (err) {
+        if (estimateRequest.current === requestId) {
+          setEstimate(null);
+          setEstimateError(err.message);
+        }
+      } finally {
+        if (estimateRequest.current === requestId) setEstimateLoading(false);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [categoryId, form.goal_amount, form.description, form.start_date, form.end_date, filledRewards.length]);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -125,6 +140,8 @@ export default function CreateProject() {
         })),
       });
       setCreated(data.project);
+      setCreatedPrediction(data.prediction || null);
+      setCreatedFraud(data.fraud || null);
       await refreshSession();
       toast('Đã gửi dự án, đang chờ quản trị viên duyệt.', 'success');
     } catch (err) {
@@ -136,7 +153,7 @@ export default function CreateProject() {
 
   if (created) {
     return (
-      <div className="mx-auto max-w-xl space-y-4">
+      <div className="mx-auto max-w-2xl space-y-4">
         <div className="card p-8 text-center">
           <div className="text-5xl">📨</div>
           <h1 className="mt-3 text-xl font-bold">Đã gửi dự án thành công</h1>
@@ -146,14 +163,26 @@ export default function CreateProject() {
           </p>
           <div className="mt-3 rounded-xl bg-slate-50 p-3 text-left text-sm">
             <div className="flex justify-between gap-2"><span>Mục tiêu</span><b>{vnd(created.goal_amount)}</b></div>
-            <div className="flex justify-between gap-2"><span>AI dự đoán thành công</span><b className="text-amber-600">{Math.round(created.ai_success_score)}%</b></div>
-            <div className="flex justify-between gap-2"><span>Rủi ro gian lận</span><b>{Math.round(created.fraud_risk_score)}%</b></div>
+            <div className="flex justify-between gap-2"><span>Trạng thái</span><b>Chờ quản trị viên duyệt</b></div>
           </div>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Link to={`/quan-ly/${created.id}`} className="btn-primary text-sm">Quản lý dự án</Link>
             <Link to="/du-an-cua-toi" className="btn-ghost text-sm">Dự án của tôi</Link>
           </div>
         </div>
+        <PredictionExplain prediction={createdPrediction} fallbackScore={created.ai_success_score} />
+        <FraudEvidenceCard
+          flags={createdFraud?.score >= 60 ? [{
+            id: 'created-project',
+            risk_score: createdFraud.score,
+            reason: createdFraud.summary,
+            evidence: createdFraud,
+            model_version: createdFraud.model_version,
+            review_status: 'pending',
+          }] : []}
+          riskScore={createdFraud?.score ?? created.fraud_risk_score}
+          modelInfo={{ project_model: createdFraud?.model_version, threshold: 60 }}
+        />
         <div className="card p-4 text-xs text-slate-500">
           Dự án chờ duyệt vẫn xem được trong trang quản lý nhưng chưa công khai trên trang khám phá.
         </div>
@@ -319,14 +348,24 @@ export default function CreateProject() {
               </div>
             </div>
 
-            <AIBox variant={score >= 70 ? 'success' : score >= 50 ? 'info' : 'warn'}>
-              AI ước tính khả năng thành công <b>{score}%</b>.{' '}
-              {score >= 70
-                ? 'Hồ sơ có tín hiệu tốt. Hãy chuẩn bị bản tin cập nhật tuần đầu để giữ đà.'
-                : score >= 50
-                  ? 'Nên thêm gói tri ân nhỏ, viết mô tả chi tiết hơn và cân nhắc giảm mục tiêu.'
-                  : 'Rủi ro cao: mục tiêu lớn hoặc mô tả còn ngắn. Hãy bổ sung gói tri ân và kế hoạch sử dụng kinh phí.'}
-            </AIBox>
+            {estimate && <PredictionExplain prediction={estimate} compact />}
+            {estimateLoading && (
+              <AIBox variant="info">
+                <span className="inline-flex items-center gap-2">
+                  <Spinner className="h-3 w-3" /> Đang tính lại dự báo từ mô hình…
+                </span>
+              </AIBox>
+            )}
+            {!estimateLoading && !estimate && estimateError && (
+              <AIBox variant="warn">
+                Chưa ước tính được khả năng thành công: {estimateError}. Bạn vẫn có thể gửi dự án để quản trị viên xem xét.
+              </AIBox>
+            )}
+            {!estimateLoading && !estimate && !estimateError && (
+              <AIBox variant="info">
+                Nhập mục tiêu, mô tả và gói tri ân để mô hình ước tính khả năng thành công.
+              </AIBox>
+            )}
 
             <div className="flex justify-between gap-2">
               <button className="btn-ghost flex-1" onClick={() => { setStep(1); setError(''); }}>← Quay lại</button>
@@ -359,9 +398,13 @@ export default function CreateProject() {
               ))}
             </div>
 
-            <AIBox variant={score >= 70 ? 'success' : score >= 50 ? 'info' : 'warn'}>
-              AI dự đoán <b>{score}%</b> khả năng thành công. Điểm chính thức sẽ được lưu vào cơ sở dữ liệu khi bạn gửi dự án.
-            </AIBox>
+            {estimate ? (
+              <PredictionExplain prediction={estimate} />
+            ) : (
+              <AIBox variant="info">
+                Chưa có dự báo chi tiết. Khi gửi, mô hình sẽ chấm điểm và lưu lại đóng góp của từng tín hiệu.
+              </AIBox>
+            )}
 
             <div className="flex justify-between gap-2">
               <button className="btn-ghost flex-1" onClick={() => { setStep(2); setError(''); }}>← Quay lại</button>

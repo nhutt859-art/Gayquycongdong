@@ -3,12 +3,13 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import {
-  AIBox,
   EmptyState,
   ErrorState,
+  FraudEvidenceCard,
   Loading,
   Modal,
   PageHeader,
+  PredictionExplain,
   Progress,
   ProjectCover,
   Spinner,
@@ -514,10 +515,13 @@ export function ManageProject() {
               <div className="mt-3"><Progress project={project} compact /></div>
             </div>
 
-            <AIBox variant={Number(project.ai_success_score) >= 70 ? 'success' : 'info'}>
-              AI dự đoán <b>{Math.round(project.ai_success_score)}%</b> khả năng thành công.
-              <div className="mt-1">Gợi ý: đăng bản tin mỗi tuần, thêm gói tri ân nhỏ và phản hồi bình luận trong 24 giờ.</div>
-            </AIBox>
+            <PredictionExplain prediction={project.prediction} fallbackScore={project.ai_success_score} compact />
+
+            <FraudEvidenceCard
+              flags={project.fraud_flags}
+              riskScore={project.fraud_risk_score}
+              title="Kiểm chứng gian lận"
+            />
 
             {isOwner && (
               <div className="card border-red-200 p-5">
@@ -630,7 +634,7 @@ export function ManageProject() {
                 <button className="btn-primary w-full text-sm disabled:opacity-60" type="submit" disabled={inviteBusy}>
                   {inviteBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang gửi…</> : 'Gửi lời mời'}
                 </button>
-                <p className="text-xs text-slate-500">Gợi ý tài khoản demo: collab@demo.vn</p>
+                <p className="text-xs text-slate-500">Người được mời cần có tài khoản trên nền tảng và sẽ nhận thông báo trong ứng dụng.</p>
               </form>
             ) : (
               <p className="text-sm text-slate-500">🔒 Chỉ chủ dự án được mời cộng tác viên.</p>

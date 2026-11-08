@@ -278,6 +278,318 @@ export function Layout({ children }) {
   );
 }
 
+function parseJson(value, fallback) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function asArray(value) {
+  const parsed = parseJson(value, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+const METRIC_LABELS = {
+  auc: 'AUC',
+  accuracy: 'Accuracy',
+  precision: 'Precision',
+  recall: 'Recall',
+  f1: 'F1',
+  brier: 'Brier',
+  baseline_accuracy: 'Baseline',
+};
+
+function predictionLabel(score) {
+  if (score >= 65) return 'Có khả năng thành công';
+  if (score <= 35) return 'Rủi ro không đạt mục tiêu';
+  return 'Kết quả chưa rõ ràng';
+}
+
+/**
+ * Hiển thị dự báo thành công kèm đóng góp của từng tín hiệu.
+ * Nhận được cả payload đầy đủ từ /api/ai/estimate và bản ghi ai_predictions.
+ */
+export function PredictionExplain({ prediction, fallbackScore = null, compact = false }) {
+  if (!prediction && fallbackScore === null) return null;
+
+  const rawScore = prediction?.score ?? prediction?.success_probability ?? fallbackScore;
+  const score = Math.round(Number(rawScore ?? 0));
+  const label = prediction?.label_text || predictionLabel(score);
+  const confidence = Number(prediction?.confidence ?? 0);
+  const modelVersion = prediction?.model?.version || prediction?.model_version || null;
+  const metrics = parseJson(prediction?.model?.metrics ?? prediction?.model_metrics, {});
+  const contributions = asArray(prediction?.contributions);
+  const sorted = [...contributions].sort(
+    (a, b) => Math.abs(Number(b.effect_pp || 0)) - Math.abs(Number(a.effect_pp || 0)),
+  );
+  const top = sorted.slice(0, compact ? 3 : 5);
+  const maxAbs = Math.max(1, ...top.map((item) => Math.abs(Number(item.effect_pp || 0))));
+  const variant = score >= 65 ? 'success' : score <= 35 ? 'warn' : 'info';
+
+  const summary =
+    prediction?.summary ||
+    (score >= 65
+      ? 'Mô hình nghiêng về khả năng thành công dựa trên các tín hiệu có sẵn trước khi chiến dịch chạy.'
+      : score <= 35
+        ? 'Mô hình đánh giá hồ sơ có rủi ro không đạt mục tiêu. Nên cải thiện các tín hiệu yếu trước khi công khai.'
+        : 'Các tín hiệu đang trái chiều, mô hình chưa đủ chắc chắn về kết quả.');
+
+  return (
+    <AIBox variant={variant} title="MÔ HÌNH DỰ ĐOÁN THÀNH CÔNG">
+      <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
+        <span className="text-2xl font-bold text-slate-800">{score}%</span>
+        <span className="font-semibold">{label}</span>
+        {confidence > 0 && <span className="text-xs text-slate-500">Độ tin cậy {confidence}%</span>}
+        {modelVersion && <span className="badge bg-slate-100 text-slate-600">{modelVersion}</span>}
+      </div>
+      <p className="mt-1">{summary}</p>
+
+      {top.length > 0 && (
+        <div className="mt-3 space-y-2">
+          <div className="text-xs font-semibold text-slate-600">Tín hiệu đóng góp chính</div>
+          {top.map((item) => {
+            const effect = Number(item.effect_pp || 0);
+            const positive = effect >= 0;
+            return (
+              <div key={item.key} className="rounded-xl bg-white/70 p-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <b>{item.label}</b>
+                  <span className={positive ? 'font-semibold text-emerald-700' : 'font-semibold text-red-600'}>
+                    {positive ? '+' : ''}{effect.toFixed(1)} điểm
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className={`h-full rounded-full ${positive ? 'bg-emerald-500' : 'bg-red-400'}`}
+                    style={{ width: `${Math.max(4, (Math.abs(effect) / maxAbs) * 100)}%` }}
+                  />
+                </div>
+                <div className="mt-1 text-xs text-slate-600">
+                  {item.explanation || `Tín hiệu này ${positive ? 'làm tăng' : 'làm giảm'} ${Math.abs(effect).toFixed(1)} điểm.`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <details className="mt-3 text-xs text-slate-600">
+        <summary className="cursor-pointer font-semibold text-slate-700">Cách mô hình được huấn luyện và kiểm định</summary>
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {Object.entries(METRIC_LABELS).map(([key, labelText]) =>
+            metrics[key] !== undefined && metrics[key] !== null ? (
+              <div key={key} className="rounded-lg bg-white/70 p-2">
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">{labelText}</div>
+                <b className="text-sm text-slate-700">{metrics[key]}</b>
+              </div>
+            ) : null,
+          )}
+        </div>
+        <p className="mt-2">
+          Logistic regression có kiểm định chéo 5 fold trên các dự án đã kết thúc. Mô hình chỉ dùng tín hiệu
+          có trước khi chiến dịch chạy; điểm tín nhiệm chủ dự án đã bao gồm KYC và lịch sử hoạt động.
+          {metrics.n ? ` Cỡ mẫu kiểm định: ${metrics.n} dự án.` : ''}
+          {metrics.baseline_accuracy !== undefined ? ` Baseline đoán theo đa số: ${Math.round(Number(metrics.baseline_accuracy) * 100)}%.` : ''}
+        </p>
+      </details>
+    </AIBox>
+  );
+}
+
+export function ModelCard({ model, title = 'Mô hình dự đoán thành công' }) {
+  if (!model) return null;
+  const metrics = model.metrics || {};
+  const features = model.features || [];
+  const maxAbs = Math.max(0.001, ...features.map((f) => Math.abs(Number(f.coefficient || 0))));
+
+  return (
+    <div className="card space-y-3 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="font-bold">{title}</h2>
+          <p className="text-xs text-slate-500">{model.algorithm}</p>
+        </div>
+        <span className="badge bg-indigo-100 text-indigo-700">{model.version}</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {Object.entries(METRIC_LABELS).map(([key, labelText]) =>
+          metrics[key] !== undefined && metrics[key] !== null ? (
+            <div key={key} className="rounded-xl bg-slate-50 p-2">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">{labelText}</div>
+              <b className="text-sm">{metrics[key]}</b>
+            </div>
+          ) : null,
+        )}
+      </div>
+
+      <div className="text-xs text-slate-500">
+        Huấn luyện trên <b>{model.sample_size}</b> dự án đã kết thúc
+        {model.positive_rate !== null && model.positive_rate !== undefined ? ` · ${model.positive_rate}% thành công` : ''}
+        {metrics.folds ? ` · kiểm định chéo ${metrics.folds} fold` : ''}.
+      </div>
+
+      {features.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-slate-600">Hệ số tín hiệu (đã chuẩn hoá)</div>
+          {features.map((feature) => {
+            const coefficient = Number(feature.coefficient || 0);
+            const positive = coefficient >= 0;
+            return (
+              <div key={feature.key} title={feature.description}>
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span>{feature.label}</span>
+                  <b className={positive ? 'text-emerald-700' : 'text-red-600'}>
+                    {positive ? '+' : ''}{coefficient.toFixed(4)}
+                  </b>
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className={`h-full rounded-full ${positive ? 'bg-emerald-500' : 'bg-red-400'}`}
+                    style={{ width: `${Math.max(3, (Math.abs(coefficient) / maxAbs) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {model.note && <p className="text-xs text-slate-500">{model.note}</p>}
+    </div>
+  );
+}
+
+const SEVERITY_STYLES = {
+  critical: 'bg-red-100 text-red-700',
+  high: 'bg-orange-100 text-orange-700',
+  medium: 'bg-amber-100 text-amber-700',
+  low: 'bg-slate-100 text-slate-600',
+};
+
+export function FraudSignals({ evidence, modelVersion = null }) {
+  const data = parseJson(evidence, {});
+  const signals = Array.isArray(data?.signals) ? data.signals : [];
+  if (!signals.length) return null;
+  return (
+    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <b>Bằng chứng ({signals.length} tín hiệu độc lập)</b>
+        <span className="text-slate-400">{modelVersion || data?.model_version || ''}</span>
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {signals.map((signal) => (
+          <div key={`${signal.code}-${signal.points}`} className="rounded-lg bg-white p-2 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className={`badge ${SEVERITY_STYLES[signal.severity] || SEVERITY_STYLES.low}`}>
+                {signal.severity || 'low'}
+              </span>
+              <b>{signal.label}</b>
+              <span className="ml-auto font-semibold text-slate-600">
+                {signal.points > 0 ? '+' : ''}{signal.points} điểm
+              </span>
+            </div>
+            <div className="mt-1 text-slate-600">{signal.evidence}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function FraudEvidenceCard({ flags = [], riskScore = null, modelInfo = null, title = 'Kiểm chứng gian lận' }) {
+  const list = asArray(flags);
+  const score = riskScore !== null && riskScore !== undefined
+    ? Math.round(Number(riskScore))
+    : list.length
+      ? Math.round(Number(list[0].risk_score || 0))
+      : 0;
+  const threshold = modelInfo?.threshold || 60;
+  const level = score >= 80 ? 'critical' : score >= threshold ? 'high' : score >= 35 ? 'medium' : 'low';
+
+  return (
+    <div className="card space-y-2 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-bold">{title}</h2>
+        <span className={`badge ${SEVERITY_STYLES[level]}`}>Rủi ro {score}%</span>
+      </div>
+      <p className="text-xs text-slate-500">
+        Mô hình {modelInfo?.project_model || 'fraud-project-v2.0'} chấm điểm từ các tín hiệu độc lập;
+        cảnh báo được tạo khi điểm đạt ngưỡng {threshold}%.
+      </p>
+
+      {list.length === 0 && (
+        <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
+          Chưa có cảnh báo vượt ngưỡng. Điểm rủi ro hiện tại {score}% — vẫn được theo dõi khi có giao dịch mới.
+        </div>
+      )}
+
+      {list.map((flag) => {
+        const evidence = parseJson(flag.evidence, {});
+        return (
+          <div key={flag.id || `${flag.entity_id}-${flag.flagged_at}`} className="rounded-xl border border-slate-200 p-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className={`badge ${SEVERITY_STYLES[evidence.level || level] || SEVERITY_STYLES.low}`}>
+                {evidence.level || level}
+              </span>
+              <b>Rủi ro {Math.round(Number(flag.risk_score ?? score))}%</b>
+              {flag.review_status && (
+                <span className="badge bg-slate-100 text-slate-600">
+                  {flag.review_status === 'pending' ? 'Chờ xử lý' : flag.review_status === 'confirmed' ? 'Đã xác nhận' : 'Báo nhầm'}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 text-sm text-slate-700">{flag.reason || evidence.summary}</div>
+            <FraudSignals evidence={flag.evidence} modelVersion={flag.model_version} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function RecommendationBreakdown({ item, compact = false }) {
+  if (!item) return null;
+  const components = Array.isArray(item.score_breakdown?.components) ? item.score_breakdown.components : [];
+  const available = components
+    .filter((c) => c.available && Number(c.contribution) > 0)
+    .sort((a, b) => Number(b.contribution) - Number(a.contribution));
+  const top = available.slice(0, compact ? 2 : 3);
+
+  return (
+    <div className="mt-1 space-y-1">
+      {item.reason && <div className="text-xs text-slate-600">{item.reason}</div>}
+      <div className="flex flex-wrap gap-1">
+        {top.map((c) => (
+          <span key={c.key} className="badge bg-white/80 text-[11px] text-slate-600">
+            {c.label} +{Math.round(Number(c.contribution) * 100)}%
+          </span>
+        ))}
+      </div>
+      {!compact && components.length > 0 && (
+        <details className="text-[11px] text-slate-500">
+          <summary className="cursor-pointer font-medium">Xem cách tính điểm gợi ý</summary>
+          <div className="mt-1 space-y-1">
+            {components.map((c) => (
+              <div key={c.key} className="flex justify-between gap-2">
+                <span>{c.label}{c.available ? '' : ' (chưa đủ dữ liệu)'}</span>
+                <b>{Math.round(Number(c.contribution) * 100)}%</b>
+              </div>
+            ))}
+            <div className="pt-1 text-slate-400">
+              Điểm tổng = tổng đóng góp của các tín hiệu có dữ liệu / tổng trọng số khả dụng.
+            </div>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export function ProjectCard({ project, onFollow, followBusy = false }) {
   return (
     <div className="card flex flex-col gap-2 p-4">
@@ -290,12 +602,12 @@ export function ProjectCard({ project, onFollow, followBusy = false }) {
       <div className="flex flex-wrap gap-1.5">
         <StatusBadge status={project.status} />
         {Number(project.fraud_risk_score) < 30 && (
-          <span className="badge border border-emerald-200 bg-emerald-50 text-emerald-700">✓ Đã kiểm chứng</span>
+          <span className="badge border border-emerald-200 bg-emerald-50 text-emerald-700">✓ Không có tín hiệu bất thường</span>
         )}
       </div>
       <Progress project={project} />
       <div className="text-xs text-slate-500">
-        AI dự đoán thành công: <b className="text-amber-600">{Math.round(project.ai_success_score)}%</b>
+        Mô hình dự đoán thành công: <b className="text-amber-600">{Math.round(project.ai_success_score)}%</b>
       </div>
       <div className="mt-auto flex gap-2">
         <Link to={`/du-an/${project.id}`} className="btn-primary flex-1 text-center text-sm">Xem & tài trợ</Link>

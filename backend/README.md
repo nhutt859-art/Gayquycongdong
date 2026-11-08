@@ -5,29 +5,35 @@ API Express 5 dùng PostgreSQL thật (Neon hoặc Postgres local), truy vấn b
 ## 1. Thành phần
 
 - **Node.js 20+** (đã kiểm thử với Node 24), Express 5, `pg`, JWT, bcrypt, Zod.
-- **16 bảng** bám theo `Usecase Database.docx`:
-  `users`, `categories`, `projects`, `project_collaborators`, `rewards`, `pledges`, `transactions`, `project_updates`, `comments`, `user_interests`, `ai_recommendations`, `ai_predictions`, `fraud_flags`, `reports`, `notifications`, `follows`.
+- **17 bảng** bám theo `Usecase Database.docx`:
+  `users`, `categories`, `projects`, `project_collaborators`, `rewards`, `pledges`, `transactions`, `project_updates`, `comments`, `user_interests`, `ai_recommendations`, `ai_predictions`, `ai_model_versions`, `fraud_flags`, `reports`, `notifications`, `follows`.
 - Trigger `pledges_refresh_aggregates` tự cộng lại `projects.current_amount` và `rewards.quantity_claimed` mỗi khi pledge đổi trạng thái.
 - Trigger cập nhật `updated_at` cho các bảng có cột này.
-- AI là **heuristic rule-based** (dự đoán thành công, chấm rủi ro gian lận, gợi ý dự án), lưu kết quả vào `ai_predictions` / `ai_recommendations` — không phải mô hình ML thật.
+- AI gồm **logistic regression thật** cho dự đoán thành công (huấn luyện trên lịch sử dự án, kiểm định chéo 5 fold, giải thích từng tín hiệu), **gợi ý dự án** dựa trên sở thích + lịch sử tài trợ + lọc cộng tác, và **kiểm chứng gian lận** dựa trên bằng chứng độc lập. Kết quả lưu vào `ai_predictions` / `ai_recommendations` / `fraud_flags`.
 
 ## 2. Cấu trúc
 
 ```text
 backend/
 ├── db/
-│   ├── schema.sql        # DROP + CREATE 16 bảng, index, trigger
-│   └── seed.sql          # 10 dự án + users/rewards/pledges/... mẫu
+│   ├── schema.sql        # DROP + CREATE 17 bảng, index, trigger
+│   ├── seed.sql          # seed cơ bản cho môi trường dev
+│   └── migrate-ai.sql    # cột/bảng phục vụ AI có thể giải thích
 ├── scripts/
 │   ├── db-check.js       # kiểm tra kết nối + bảng + số dòng
 │   ├── setup-db.js       # chạy schema + seed (hoặc chỉ seed)
-│   └── smoke.js          # 67 kiểm tra API end-to-end
+│   ├── seed-realistic.js # sinh dữ liệu lịch sử thực tế hơn (--dry-run / --apply)
+│   ├── migrate-ai.js     # áp migration AI
+│   ├── train-ai.js       # huấn luyện mô hình dự đoán thành công
+│   ├── refresh-ai.js     # huấn luyện lại + tạo lại dự báo/gợi ý
+│   ├── verify-ai.mjs     # kiểm tra model/dự báo/gợi ý/cảnh báo đã lưu
+│   └── smoke.js          # kiểm tra API end-to-end
 ├── src/
 │   ├── server.js         # khởi động Express, CORS, error handler
 │   ├── db.js             # pool pg + withTransaction
 │   ├── middleware/auth.js
-│   ├── routes/           # auth, me, projects, categories, admin
-│   ├── services/         # ai, permissions, notifications
+│   ├── routes/           # auth, me, projects, categories, admin, ai
+│   ├── services/         # ai, ai-model, permissions, notifications
 │   └── lib/              # errors, validate, mappers
 ├── .env.example
 └── package.json
@@ -80,13 +86,19 @@ Bạn tự tạo project và tự dán connection string vào `.env`; không c�
 
    Kết quả đúng: kết nối thành công, báo thiếu bảng (lần đầu) → chạy bước 7.
 
-7. Tạo schema + nạp 10 dự án mẫu:
+7. Tạo schema, nạp dữ liệu lịch sử và huấn luyện mô hình:
 
    ```powershell
    npm run db:setup
+   npm run db:migrate-ai
+   npm run db:seed:realistic -- --dry-run
+   npm run db:seed:realistic -- --apply
+   npm run ai:refresh
    ```
 
-   > ⚠️ `db:setup` **DROP toàn bộ 16 bảng** trong schema `public` rồi tạo lại. Chỉ chạy trên database demo, không chạy trên dữ liệu thật.
+   `db:seed:realistic -- --apply` nạp 200 dự án, ~1.240 người dùng và hàng nghìn giao dịch; giữ lại tài khoản admin thật. `--dry-run` chỉ kiểm tra tính nhất quán, không ghi database.
+
+   > ⚠️ `db:setup` **DROP toàn bộ 17 bảng** trong schema `public` rồi tạo lại. Chỉ chạy trên database đồ án, không chạy trên dữ liệu thật.
 
 8. Chạy API:
 
@@ -216,10 +228,16 @@ Thứ tự ưu tiên khi không đặt `MAIL_PROVIDER`: `BREVO_API_KEY` → `RES
 |---|---|
 | `npm run dev` | Chạy API với `node --watch` |
 | `npm start` | Chạy API production |
-| `npm run db:check` | Kiểm tra kết nối, đủ 16 bảng, số dòng, trigger, danh sách dự án |
+| `npm run db:check` | Kiểm tra kết nối, đủ 17 bảng, số dòng, trigger, danh sách dự án |
 | `npm run db:migrate-auth` | Thêm cột xác thực email / reset mật khẩu vào DB cũ (không xoá dữ liệu) |
-| `npm run db:setup` | DROP + CREATE schema rồi seed 10 dự án |
-| `npm run db:seed` | Chỉ nạp lại seed (không DROP bảng) |
+| `npm run db:migrate-ai` | Thêm cột/bảng AI (predictions, recommendations, fraud evidence, model versions) vào DB cũ |
+| `npm run db:setup` | DROP + CREATE schema rồi seed cơ bản |
+| `npm run db:seed` | Chỉ nạp lại seed cơ bản (không DROP bảng) |
+| `npm run db:seed:realistic -- --dry-run` | Kiểm tra bộ dữ liệu 200 dự án trước khi ghi |
+| `npm run db:seed:realistic -- --apply` | Nạp lại dữ liệu lịch sử thực tế hơn |
+| `npm run ai:train` | Huấn luyện mô hình dự đoán thành công và lưu version |
+| `npm run ai:refresh` | Huấn luyện lại + tạo lại toàn bộ dự báo/gợi ý |
+| `npm run ai:verify` | Kiểm tra model đang active, dự báo, gợi ý và cảnh báo gian lận đã lưu |
 | `npm run mail:test -- email@example.com` | Gửi email test qua dịch vụ đang cấu hình |
 | `npm run smoke` | 69 kiểm tra API; đặt `API_URL` nếu API không ở cổng 4000 |
 
@@ -249,21 +267,17 @@ Tất cả dưới tiền tố `/api`. Route cần đăng nhập dùng header `A
 | Lời mời | `POST /me/invitations/:projectId/accept`, `.../decline` |
 | Admin | `GET /admin/stats`, duyệt/từ chối/hoàn tiền dự án, duyệt/từ chối giải ngân, cảnh báo gian lận, báo cáo, người dùng, CRUD danh mục |
 
-## 7. Tài khoản demo
+## 7. Tài khoản thử nghiệm
 
 Mật khẩu chung: **`123456`**
 
 | Email | Vai trò |
 |---|---|
-| `admin@demo.vn` | Quản trị viên |
-| `backer@demo.vn` | Nhà tài trợ |
-| `owner@demo.vn` | Chủ dự án (Nhóm Sông Sạch) |
-| `quy@demo.vn` | Chủ dự án (Quỹ Học Bổng Vùng Cao) |
-| `yte@demo.vn` | Chủ dự án (Mái Ấm Y Tế) |
-| `collab@demo.vn` | Cộng tác viên |
-| `lan@demo.vn`, `hung@demo.vn`, `thao@demo.vn` | Nhà tài trợ khác |
+| `minhanh.nguyen@gayquy.vn` | Nhà tài trợ, KYC đã xác thực |
+| `thu.ha.le@gayquy.vn` | Nhà tài trợ, KYC đã xác thực |
+| `hoang.nam.tran@gayquy.vn` | Chủ dự án, KYC đã xác thực |
 
-Seed có 10 dự án: 5 đang gây quỹ, 2 thành công, 1 thất bại, 1 chờ duyệt, 1 đã huỷ. Ngày tháng tính tương đối theo `CURRENT_DATE` nên chiến dịch luôn còn hạn khi demo.
+Bộ dữ liệu `db:seed:realistic -- --apply` tạo 200 dự án với đủ trạng thái (thành công, thất bại, đang gây quỹ, chờ duyệt, đã dừng), 523 gói tri ân, 6.629 pledge và 7.178 giao dịch. Ngày tháng được tính ngược từ thời điểm chạy để lịch sử luôn nhất quán. Tài khoản admin thật đang dùng trên production được giữ nguyên, không nằm trong danh sách mật khẩu chung.
 
 ## 8. Xử lý sự cố
 
@@ -282,7 +296,8 @@ Seed có 10 dự án: 5 đang gây quỹ, 2 thành công, 1 thất bại, 1 ch�
 ## 9. Lưu ý phạm vi đồ án
 
 - Thanh toán chỉ **mô phỏng** (kể cả nút “giả lập thất bại”), không kết nối cổng thanh toán thật.
-- KYC demo tự xác thực ngay; không có OCR/giấy tờ thật.
-- AI là heuristic, không huấn luyện mô hình.
+- KYC mô phỏng tự xác thực ngay; không có OCR/giấy tờ thật.
+- Dữ liệu lịch sử là dữ liệu tổng hợp có kiểm soát, không phải người dùng thật. Mô hình logistic regression học trên dữ liệu này (AUC 0.704, kiểm định chéo 5 fold) chỉ dùng để minh hoạ quy trình ra quyết định.
+- Mô hình gian lận dựa trên bằng chứng độc lập và ngưỡng cảnh báo 60%; admin vẫn phải xác minh từng trường hợp, hệ thống không tự kết luận.
 - JWT lưu `localStorage`; đăng xuất chỉ xoá token phía client.
 - Không commit `.env` (đã có trong `.gitignore`).

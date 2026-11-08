@@ -9,8 +9,13 @@
     "start": "node src/server.js",
     "db:check": "node scripts/db-check.js",
     "db:migrate-auth": "node scripts/migrate-auth.js",
+    "db:migrate-ai": "node scripts/migrate-ai.js",
     "db:setup": "node scripts/setup-db.js",
     "db:seed": "node scripts/setup-db.js --seed-only",
+    "db:seed:realistic": "node scripts/seed-realistic.js",
+    "ai:train": "node scripts/train-ai.js",
+    "ai:refresh": "node scripts/refresh-ai.js",
+    "ai:verify": "node scripts/verify-ai.mjs",
     "mail:test": "node scripts/test-mail.js",
     "smoke": "node scripts/smoke.js"
   },

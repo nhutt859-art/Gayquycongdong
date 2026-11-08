@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
-import { AIBox, EmptyState, ErrorState, Loading, PageHeader, ProjectCard, Spinner } from '../components/ui';
+import { AIBox, EmptyState, ErrorState, Loading, PageHeader, ProjectCard, RecommendationBreakdown, Spinner } from '../components/ui';
 import { compactMoney } from '../lib/format';
 
 export default function Home() {
@@ -101,32 +101,57 @@ export default function Home() {
       </section>
 
       {currentUser ? (
-        <AIBox variant={recommendations.length ? 'success' : 'info'}>
-          <b>Gợi ý dành riêng cho {currentUser.full_name}:</b>{' '}
+        <section className="card p-5">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="font-bold">Gợi ý dành riêng cho {currentUser.full_name}</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {interestNames.length > 0 ? (
+                  <>Dựa trên sở thích <i>{interestNames.join(', ')}</i> và lịch sử tài trợ của bạn.</>
+                ) : (
+                  'Dựa trên lịch sử tài trợ và hành vi của những người ủng hộ tương tự.'
+                )}
+              </p>
+            </div>
+            <Link to="/chon-so-thich" className="link text-xs">Điều chỉnh sở thích</Link>
+          </div>
+
           {recommendations.length > 0 ? (
-            <>
-              dựa trên sở thích {interestNames.length ? <i>{interestNames.join(', ')}</i> : <i>và hành vi tài trợ</i>}, AI chấm{' '}
-              {recommendations.slice(0, 3).map((p, index) => (
-                <span key={p.id}>
-                  {index > 0 && ' · '}
-                  <Link to={`/du-an/${p.id}`} className="font-semibold text-emerald-700 hover:underline">
-                    {p.title} ({Math.round(Number(p.score) * 100)}%)
-                  </Link>
-                </span>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {recommendations.slice(0, 3).map((p) => (
+                <Link
+                  key={p.id}
+                  to={`/du-an/${p.id}`}
+                  className="rounded-xl border border-slate-200 p-3 transition hover:border-emerald-400 hover:bg-emerald-50/40"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <b className="text-sm leading-snug">{p.title}</b>
+                    <span className="badge shrink-0 bg-emerald-100 text-emerald-700">
+                      {Math.round(Number(p.score) * 100)}%
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {p.category_name} · {compactMoney(p.current_amount)} / {compactMoney(p.goal_amount)}
+                  </div>
+                  <RecommendationBreakdown item={p} compact />
+                </Link>
               ))}
-              .
-            </>
+            </div>
           ) : (
-            <>
-              chưa đủ dữ liệu để cá nhân hoá.{' '}
+            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+              Chưa đủ dữ liệu để cá nhân hoá.{' '}
               <Link to="/chon-so-thich" className="font-semibold text-emerald-700 hover:underline">
                 Chọn chủ đề quan tâm
               </Link>{' '}
-              để AI gợi ý chính xác hơn.
-            </>
+              để hệ thống gợi ý chính xác hơn.
+            </div>
           )}
-          <span className="text-slate-500"> Điểm gợi ý được tính lại mỗi lần bạn mở trang.</span>
-        </AIBox>
+
+          <p className="mt-3 text-xs text-slate-400">
+            Điểm gợi ý kết hợp sở thích đã chọn, lịch sử tài trợ cùng danh mục, hành vi của người ủng hộ tương tự,
+            chất lượng chiến dịch và độ mới. Mở từng dự án để xem chi tiết.
+          </p>
+        </section>
       ) : (
         <AIBox>
           <b>AI gợi ý dự án phù hợp:</b>{' '}

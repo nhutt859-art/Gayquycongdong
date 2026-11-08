@@ -14,6 +14,7 @@ DROP TABLE IF EXISTS reports CASCADE;
 DROP TABLE IF EXISTS fraud_flags CASCADE;
 DROP TABLE IF EXISTS ai_predictions CASCADE;
 DROP TABLE IF EXISTS ai_recommendations CASCADE;
+DROP TABLE IF EXISTS ai_model_versions CASCADE;
 DROP TABLE IF EXISTS user_interests CASCADE;
 DROP TABLE IF EXISTS comments CASCADE;
 DROP TABLE IF EXISTS project_updates CASCADE;
@@ -209,11 +210,13 @@ CREATE TABLE user_interests (
 -- 11. ai_recommendations
 -- ============================================================
 CREATE TABLE ai_recommendations (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  project_id   UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  score        NUMERIC(4,3) NOT NULL CHECK (score BETWEEN 0 AND 1),
-  generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id      UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  score           NUMERIC(4,3) NOT NULL CHECK (score BETWEEN 0 AND 1),
+  reason          TEXT,
+  score_breakdown JSONB NOT NULL DEFAULT '{}'::jsonb,
+  generated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, project_id)
 );
 
@@ -224,9 +227,31 @@ CREATE TABLE ai_predictions (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id          UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   success_probability NUMERIC(5,2) NOT NULL CHECK (success_probability BETWEEN 0 AND 100),
-  model_version       VARCHAR(20) NOT NULL DEFAULT 'v2.3',
+  label               VARCHAR(20),
+  confidence          NUMERIC(5,2),
+  model_version       VARCHAR(20) NOT NULL DEFAULT 'logreg-v3.1',
   features_snapshot   JSONB NOT NULL DEFAULT '{}'::jsonb,
+  contributions       JSONB NOT NULL DEFAULT '[]'::jsonb,
+  model_metrics       JSONB NOT NULL DEFAULT '{}'::jsonb,
   predicted_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ============================================================
+-- 12b. ai_model_versions — lưu mô hình đã huấn luyện + chỉ số kiểm định
+-- ============================================================
+CREATE TABLE ai_model_versions (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  model_key     VARCHAR(40) NOT NULL,
+  version       VARCHAR(40) NOT NULL,
+  algorithm     VARCHAR(120) NOT NULL,
+  trained_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sample_size   INTEGER NOT NULL DEFAULT 0,
+  positive_count INTEGER NOT NULL DEFAULT 0,
+  metrics       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  coefficients  JSONB NOT NULL DEFAULT '{}'::jsonb,
+  feature_stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+  is_active     BOOLEAN NOT NULL DEFAULT true,
+  UNIQUE (model_key, version)
 );
 
 -- ============================================================
@@ -238,6 +263,8 @@ CREATE TABLE fraud_flags (
   entity_id     UUID NOT NULL,
   risk_score    NUMERIC(5,2) NOT NULL CHECK (risk_score BETWEEN 0 AND 100),
   reason        TEXT NOT NULL,
+  evidence      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  model_version VARCHAR(30) NOT NULL DEFAULT 'fraud-v2.0',
   flagged_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   review_status review_status NOT NULL DEFAULT 'pending',
   reviewed_by   UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -300,6 +327,8 @@ CREATE INDEX reports_status_idx         ON reports (status);
 CREATE INDEX fraud_flags_status_idx     ON fraud_flags (review_status);
 CREATE INDEX project_collaborators_user_idx ON project_collaborators (user_id);
 CREATE INDEX ai_predictions_project_idx ON ai_predictions (project_id);
+CREATE INDEX ai_model_versions_active_idx ON ai_model_versions (model_key, is_active);
+CREATE INDEX ai_recommendations_user_idx ON ai_recommendations (user_id, score DESC);
 
 -- ============================================================
 --  TRIGGER: cập nhật updated_at

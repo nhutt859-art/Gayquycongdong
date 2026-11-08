@@ -83,6 +83,18 @@ export default function Checkout() {
         <div className="card p-4 text-xs text-slate-500">
           Hệ thống đã ghi nhận khoản tài trợ, cập nhật số tiền của dự án và gửi thông báo cho chủ dự án.
         </div>
+        {result.fraud && Number(result.fraud.score) >= 60 ? (
+          <AIBox variant="warn" title="Giao dịch đang được xem xét">
+            Điểm rủi ro <b>{Math.round(Number(result.fraud.score))}%</b>. {result.fraud.summary}
+            <div className="mt-1 text-xs text-slate-600">
+              Khoản tài trợ vẫn được ghi nhận; quản trị viên sẽ xác minh trước khi giải ngân.
+            </div>
+          </AIBox>
+        ) : (
+          <AIBox variant="success">
+            Giao dịch không có tín hiệu bất thường. Hệ thống tiếp tục theo dõi nếu có giao dịch mới.
+          </AIBox>
+        )}
       </div>
     );
   }

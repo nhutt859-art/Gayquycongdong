@@ -244,7 +244,7 @@ router.get(
       throw new ApiError(404, 'Không tìm thấy dự án.');
     }
 
-    const [rewards, updates, comments, collaborators, followers, backers, pledgesSum, prediction, payouts] = await Promise.all([
+    const [rewards, updates, comments, collaborators, followers, backers, pledgesSum, prediction, payouts, fraudFlags] = await Promise.all([
       query('select * from rewards where project_id = $1 order by min_amount asc', [req.params.id]),
       query(
         `select pu.*, u.full_name as author_name
@@ -283,6 +283,15 @@ router.get(
           order by t.created_at desc`,
         [req.params.id],
       ),
+      canSeeHidden
+        ? query(
+            `select id, entity_type, entity_id, risk_score, reason, evidence, model_version, flagged_at, review_status
+               from fraud_flags
+              where entity_type = 'project' and entity_id = $1
+              order by flagged_at desc limit 10`,
+            [req.params.id],
+          )
+        : Promise.resolve({ rows: [] }),
     ]);
 
     let isFollowing = false;
@@ -327,6 +336,7 @@ router.get(
       raised_from_pledges: Number(pledgesSum.rows[0].total),
       my_pledge_total: myPledgeTotal,
       prediction: prediction.rows[0] || null,
+      fraud_flags: fraudFlags.rows.map((f) => ({ ...f, risk_score: Number(f.risk_score) })),
       payouts: access.canManage || access.isAdmin ? payouts.rows.map((p) => ({ ...p, amount: Number(p.amount) })) : [],
       available_for_payout: access.canManage || access.isAdmin
         ? Math.max(0, Number(project.current_amount) - payoutTotal)
@@ -380,19 +390,31 @@ router.post(
     if (body.end_date < today()) throw new ApiError(400, 'Ngày kết thúc phải ở tương lai.');
 
     const durationDays = Math.max(1, Math.ceil((Date.parse(body.end_date) - Date.parse(start)) / 86_400_000));
-    const aiScore = predictSuccess({
+    const prediction = await predictSuccess({
+      categoryId: body.category_id,
       goalAmount: body.goal_amount,
-      categoryName: category.rows[0].name,
       rewardsCount: body.rewards.length,
       description: body.description,
       durationDays,
+      ownerId: req.user.id,
+      ownerTrust: req.user.trust_score,
+      ownerKyc: req.user.kyc_status,
     });
-    const fraudScore = fraudScoreForProject({
-      goalAmount: body.goal_amount,
-      trustScore: req.user.trust_score,
-      kycStatus: req.user.kyc_status,
+    const fraud = await fraudScoreForProject({
+      ownerId: req.user.id,
+      categoryId: body.category_id,
+      title: body.title,
       description: body.description,
+      goalAmount: body.goal_amount,
+      rewardsCount: body.rewards.length,
+      durationDays,
+      ownerTrust: req.user.trust_score,
+      ownerKyc: req.user.kyc_status,
+      ownerCreatedAt: req.user.created_at,
+      startDate: start,
     });
+    const aiScore = prediction.score;
+    const fraudScore = fraud.score;
 
     const project = await withTransaction(async (client) => {
       const inserted = await client.query(
@@ -417,12 +439,20 @@ router.post(
         );
       }
 
-      await savePrediction(client, row.id, aiScore, {
-        category: category.rows[0].name,
-        goal: body.goal_amount,
-        rewards: body.rewards.length,
-        duration_days: durationDays,
-      });
+      await savePrediction(client, row.id, prediction);
+
+      if (fraudScore >= 60) {
+        await client.query(
+          `insert into fraud_flags (entity_type, entity_id, risk_score, reason, evidence, model_version)
+           values ('project', $1, $2, $3, $4::jsonb, $5)`,
+          [row.id, fraudScore, fraud.summary, JSON.stringify(fraud), fraud.model_version],
+        );
+        await notifyAdmins(client, {
+          type: 'fraud',
+          content: `AI gắn cờ dự án “${row.title}” với rủi ro ${fraudScore}%: ${fraud.summary}`,
+          link: '/admin/gian-lan',
+        });
+      }
 
       await client.query(`update users set role = 'owner' where id = $1 and role = 'backer'`, [req.user.id]);
 
@@ -437,6 +467,8 @@ router.post(
 
     res.status(201).json({
       project: mapProject({ ...project, category_name: category.rows[0].name, owner_name: req.user.full_name }),
+      prediction,
+      fraud,
       message: 'Đã gửi dự án, chờ admin duyệt.',
     });
   }),
@@ -486,24 +518,39 @@ router.patch(
     }
     if (!sets.length) throw new ApiError(400, 'Không có trường nào cần cập nhật.');
 
+    let prediction = null;
+    let fraud = null;
     if (sets.length) {
       const durationDays = Math.max(1, Math.ceil((Date.parse(end) - Date.parse(start)) / 86_400_000));
       const rewardsCount = await query('select count(*)::int as total from rewards where project_id = $1', [req.params.id]);
-      const aiScore = predictSuccess({
+      const owner = await query('select trust_score, kyc_status, created_at from users where id = $1', [project.owner_id]);
+      const ownerRow = owner.rows[0] || {};
+      prediction = await predictSuccess({
+        categoryId: body.category_id ?? project.category_id,
         goalAmount: Number(body.goal_amount ?? project.goal_amount),
-        categoryName,
         rewardsCount: rewardsCount.rows[0].total,
         description: body.description ?? project.description,
         durationDays,
+        ownerId: project.owner_id,
+        ownerTrust: ownerRow.trust_score,
+        ownerKyc: ownerRow.kyc_status,
       });
-      const fraudScore = fraudScoreForProject({
-        goalAmount: Number(body.goal_amount ?? project.goal_amount),
-        trustScore: req.user.trust_score,
-        kycStatus: req.user.kyc_status,
+      fraud = await fraudScoreForProject({
+        projectId: project.id,
+        ownerId: project.owner_id,
+        categoryId: body.category_id ?? project.category_id,
+        title: body.title ?? project.title,
         description: body.description ?? project.description,
+        goalAmount: Number(body.goal_amount ?? project.goal_amount),
+        rewardsCount: rewardsCount.rows[0].total,
+        durationDays,
+        ownerTrust: ownerRow.trust_score,
+        ownerKyc: ownerRow.kyc_status,
+        ownerCreatedAt: ownerRow.created_at,
+        startDate: start,
       });
-      sets.push(`ai_success_score = ${add(aiScore)}`);
-      sets.push(`fraud_risk_score = ${add(fraudScore)}`);
+      sets.push(`ai_success_score = ${add(prediction.score)}`);
+      sets.push(`fraud_risk_score = ${add(fraud.score)}`);
     }
 
     const idParam = add(req.params.id);
@@ -512,16 +559,34 @@ router.patch(
       params,
     );
 
-    if (body.goal_amount !== undefined || body.description !== undefined || body.end_date !== undefined) {
-      await savePrediction(pool, rows[0].id, Number(rows[0].ai_success_score), {
-        category: categoryName,
-        goal: Number(rows[0].goal_amount),
-        rewards: 0,
-        updated: true,
-      });
+    if (prediction) {
+      await savePrediction(pool, rows[0].id, prediction);
+      if (fraud.score >= 60) {
+        const existing = await query(
+          `select 1 from fraud_flags
+            where entity_type = 'project' and entity_id = $1 and review_status = 'pending'`,
+          [rows[0].id],
+        );
+        if (!existing.rowCount) {
+          await query(
+            `insert into fraud_flags (entity_type, entity_id, risk_score, reason, evidence, model_version)
+             values ('project', $1, $2, $3, $4::jsonb, $5)`,
+            [rows[0].id, fraud.score, fraud.summary, JSON.stringify(fraud), fraud.model_version],
+          );
+          await notifyAdmins(pool, {
+            type: 'fraud',
+            content: `AI cập nhật cảnh báo cho dự án “${rows[0].title}” với rủi ro ${fraud.score}%: ${fraud.summary}`,
+            link: '/admin/gian-lan',
+          });
+        }
+      }
     }
 
-    res.json({ project: mapProject({ ...rows[0], category_name: categoryName }) });
+    res.json({
+      project: mapProject({ ...rows[0], category_name: categoryName }),
+      prediction,
+      fraud,
+    });
   }),
 );
 
@@ -737,17 +802,17 @@ router.post(
         throw new ApiError(402, 'Thanh toán thất bại (giả lập). Chưa tạo khoản tài trợ.');
       }
 
-      const recent = await client.query(
-        `select count(*)::int as total from pledges
-          where backer_id = $1 and created_at > now() - interval '5 minutes'`,
-        [req.user.id],
-      );
-      const risk = fraudScoreForPledge({
+      const fraud = await fraudScoreForPledge({
+        backerId: req.user.id,
+        projectId: req.params.id,
         amount: body.amount,
         isAnonymous: body.is_anonymous,
         trustScore: req.user.trust_score,
-        recentCount: recent.rows[0].total + 1,
+        kycStatus: req.user.kyc_status,
+        backerCreatedAt: req.user.created_at,
+        method: body.method,
       });
+      const risk = fraud.score;
 
       const gatewayRef = `${body.method.replace(/\s+/g, '').toUpperCase()}-${Date.now()}`;
       const pledgeResult = await client.query(
@@ -763,15 +828,15 @@ router.post(
         [pledge.id, req.params.id, body.amount, body.method, gatewayRef],
       );
 
-      if (risk >= 70) {
+      if (risk >= 60) {
         await client.query(
-          `insert into fraud_flags (entity_type, entity_id, risk_score, reason)
-           values ('pledge', $1, $2, $3)`,
-          [pledge.id, risk, `Giao dịch ${Number(body.amount).toLocaleString('vi-VN')}đ có dấu hiệu bất thường (${recent.rows[0].total + 1} giao dịch/5 phút).`],
+          `insert into fraud_flags (entity_type, entity_id, risk_score, reason, evidence, model_version)
+           values ('pledge', $1, $2, $3, $4::jsonb, $5)`,
+          [pledge.id, risk, fraud.summary, JSON.stringify(fraud), fraud.model_version],
         );
         await notifyAdmins(client, {
           type: 'fraud',
-          content: `AI gắn cờ giao dịch ${Number(body.amount).toLocaleString('vi-VN')}đ của ${req.user.full_name}.`,
+          content: `AI gắn cờ giao dịch ${Number(body.amount).toLocaleString('vi-VN')}đ của ${req.user.full_name}: ${fraud.summary}`,
           link: '/admin/gian-lan',
         });
       }
@@ -783,12 +848,14 @@ router.post(
       });
 
       const updated = await client.query('select * from projects where id = $1', [req.params.id]);
-      return { pledge, project: updated.rows[0], risk };
+      return { pledge, project: updated.rows[0], risk, fraud };
     });
 
     res.status(201).json({
       pledge: { ...result.pledge, amount: Number(result.pledge.amount) },
       project: mapProject(result.project),
+      risk: result.risk,
+      fraud: result.fraud,
       message: `Tài trợ ${Number(result.pledge.amount).toLocaleString('vi-VN')}đ thành công.`,
     });
   }),

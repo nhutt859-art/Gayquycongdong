@@ -6,6 +6,7 @@ import { parse } from '../lib/validate.js';
 import { mapProject } from '../lib/mappers.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 import { notify } from '../services/notifications.js';
+import { getFraudModelInfo, getModelCard } from '../services/ai.js';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -71,11 +72,14 @@ router.get(
 
     const s = summary.rows[0];
     const decided = s.successful_projects + s.failed_projects;
+    const [aiModel, fraudModel] = await Promise.all([getModelCard(), getFraudModelInfo()]);
     res.json({
       ...s,
       success_rate: decided > 0 ? Math.round((s.successful_projects / decided) * 100) : 0,
       chart: chart.rows,
       top_categories: categories.rows,
+      ai_model: aiModel,
+      fraud_model: fraudModel,
     });
   }),
 );

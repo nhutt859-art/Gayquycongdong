@@ -9,6 +9,7 @@ import meRoutes from './routes/me.js';
 import projectRoutes from './routes/projects.js';
 import categoryRoutes from './routes/categories.js';
 import adminRoutes from './routes/admin.js';
+import aiRoutes from './routes/ai.js';
 
 if (!process.env.DATABASE_URL) {
   console.error('\n❌ Thiếu DATABASE_URL trong backend/.env');
@@ -123,6 +124,7 @@ app.use('/api/me', meRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/ai', aiRoutes);
 
 app.use((req, _res, next) => {
   next(new ApiError(404, `Không tìm thấy API: ${req.method} ${req.originalUrl}`));

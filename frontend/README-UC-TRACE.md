@@ -9,6 +9,9 @@
 cd backend
 npm install
 npm run db:setup
+npm run db:migrate-ai
+npm run db:seed:realistic -- --apply
+npm run ai:refresh
 npm run dev
 
 # Terminal 2
@@ -17,7 +20,7 @@ npm install
 npm run dev
 ```
 
-Mật khẩu demo chung: `123456`. Chi tiết cấu hình Neon xem `backend/README.md`.
+Mật khẩu chung cho tài khoản thử nghiệm: `123456`. Chi tiết cấu hình Neon xem `backend/README.md`.
 
 ## Bảng truy vết
 
@@ -47,8 +50,8 @@ Mật khẩu demo chung: `123456`. Chi tiết cấu hình Neon xem `backend/READ
 | UC22 Theo dõi dự án | Nút ★ ở `/du-an/:id` | `POST/DELETE /projects/:id/follow` | follows, notifications |
 | UC23 Báo cáo vi phạm | `/du-an/:id` → modal báo cáo; admin xử lý ở `/admin/gian-lan` | `POST /projects/:id/reports`, `PATCH /admin/reports/:id` | reports |
 | UC24 AI gợi ý dự án | Home “Dành cho bạn” | `GET /me/recommendations` | user_interests, ai_recommendations |
-| UC25 AI dự đoán thành công | `/du-an/:id` AIBox, `/tao-du-an`, `/quan-ly/:id` | `GET /projects/:id`, `POST /projects` | ai_predictions, projects.ai_success_score |
-| UC26 AI phát hiện gian lận | `/tai-tro/:id` (cảnh báo theo số tiền), `/admin/gian-lan` | `POST /projects/:id/pledges` | fraud_flags, users.trust_score |
+| UC25 AI dự đoán thành công | `/du-an/:id`, `/tao-du-an`, `/quan-ly/:id` | `GET /projects/:id`, `POST /projects`, `POST /ai/estimate` | ai_predictions, ai_model_versions, projects.ai_success_score |
+| UC26 AI phát hiện gian lận | `/tai-tro/:id` (cảnh báo theo số tiền), `/admin/gian-lan` | `POST /projects/:id/pledges` | fraud_flags.evidence, users.trust_score |
 | UC27 Admin xem rủi ro & duyệt cảnh báo | `/admin/gian-lan` | `GET /admin/fraud-flags`, `PATCH /admin/fraud-flags/:id` | fraud_flags.review_status |
 | UC28 Quản lý danh mục | `/admin/danh-muc` | `GET/POST/PATCH/DELETE /admin/categories` | categories |
 | UC29 Quản lý người dùng | `/admin/nguoi-dung` (khóa/mở) | `PATCH /admin/users/:id/status` | users.status |
@@ -56,7 +59,7 @@ Mật khẩu demo chung: `123456`. Chi tiết cấu hình Neon xem `backend/READ
 
 ## Ghi chú
 
-- **AI** trong đồ án là heuristic rule-based; kết quả được lưu vào `ai_predictions`/`ai_recommendations`, không phải mô hình học máy huấn luyện thật.
+- **AI** dùng logistic regression thật cho dự đoán thành công (6 tín hiệu, kiểm định chéo 5 fold, lưu đóng góp từng tín hiệu), gợi ý dự án dựa trên sở thích + lịch sử tài trợ + lọc cộng tác, và kiểm chứng gian lận dựa trên bằng chứng độc lập. Kết quả lưu vào `ai_predictions`/`ai_recommendations`/`fraud_flags`.
 - **Thanh toán** chỉ mô phỏng: thành công tạo `pledges` + `transactions`; nút “giả lập thất bại” trả lỗi 402 và không cộng tiền.
 - **KYC** demo tự xác thực ngay khi bấm; không tải giấy tờ thật.
 - **JWT** lưu `localStorage`; logout chỉ xoá token phía client.

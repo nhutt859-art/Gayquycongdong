@@ -6,8 +6,10 @@ import {
   AIBox,
   EmptyState,
   ErrorState,
+  FraudSignals,
   Loading,
   Modal,
+  ModelCard,
   Spinner,
   StatCard,
 } from '../components/ui';
@@ -85,9 +87,14 @@ export function Admin({ tab = 'tong-quan' }) {
         const data = await api.get('/admin/payouts');
         setPayouts(data?.items || []);
       } else if (activeTab === 'gian-lan') {
-        const [f, r] = await Promise.all([api.get('/admin/fraud-flags'), api.get('/admin/reports')]);
+        const [f, r, s] = await Promise.all([
+          api.get('/admin/fraud-flags'),
+          api.get('/admin/reports'),
+          api.get('/admin/stats'),
+        ]);
         setFlags(f?.items || []);
         setReports(r?.items || []);
+        setStats(s || null);
       } else if (activeTab === 'nguoi-dung') {
         const data = await api.get('/admin/users');
         setUsers(data?.items || []);
@@ -311,14 +318,29 @@ export function Admin({ tab = 'tong-quan' }) {
                 ))}
               </div>
             </div>
-            <AIBox variant="info" title="✨ AI ĐIỀU HÀNH">
-              Hệ thống đang theo dõi {stats.total_projects} dự án và {stats.paid_pledges} giao dịch đã thanh toán.
-              {stats.open_flags > 0
-                ? ` Có ${stats.open_flags} cảnh báo gian lận cần xác minh — ưu tiên xử lý các cảnh báo rủi ro cao.`
-                : ' Chưa có cảnh báo gian lận nào đang mở.'}
-              <div className="mt-2 text-xs text-slate-500">Điểm AI được tính heuristic từ mục tiêu, danh mục, mô tả và hành vi giao dịch.</div>
-            </AIBox>
+            <div className="card p-4">
+              <b className="text-sm">Tình trạng giám sát</b>
+              <div className="mt-2 space-y-1 text-sm text-slate-600">
+                <div>
+                  Hệ thống đang theo dõi <b>{stats.total_projects}</b> dự án và <b>{stats.paid_pledges}</b> giao dịch đã thanh toán.
+                </div>
+                <div>
+                  {stats.open_flags > 0
+                    ? `Có ${stats.open_flags} cảnh báo gian lận cần xác minh — ưu tiên xử lý các cảnh báo rủi ro cao.`
+                    : 'Chưa có cảnh báo gian lận nào đang mở.'}
+                </div>
+                {stats.fraud_model && (
+                  <div className="mt-2 rounded-xl bg-slate-50 p-2 text-xs text-slate-500">
+                    <b className="text-slate-700">Mô hình gian lận:</b> {stats.fraud_model.project_model} /{' '}
+                    {stats.fraud_model.pledge_model} · ngưỡng cảnh báo {stats.fraud_model.threshold}%.
+                    <div className="mt-1">{stats.fraud_model.description}</div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+
+          {stats.ai_model && <ModelCard model={stats.ai_model} />}
         </>
       )}
 
@@ -395,9 +417,11 @@ export function Admin({ tab = 'tong-quan' }) {
 
       {!loading && !error && activeTab === 'gian-lan' && (
         <>
-          <AIBox variant={flags.some((f) => f.review_status === 'pending') ? 'warn' : 'success'} title="⚠️ AI CẢNH BÁO GIAN LẬN">
-            Hệ thống chấm điểm dự án mới và mọi giao dịch theo mục tiêu, độ tin cậy chủ dự án, tần suất và tính ẩn danh.
-            Cảnh báo vượt ngưỡng cần quản trị viên xác minh.
+          <AIBox variant={flags.some((f) => f.review_status === 'pending') ? 'warn' : 'success'} title="⚠️ KIỂM CHỨNG GIAN LẬN">
+            Hệ thống chấm điểm dự án mới và mọi giao dịch từ các tín hiệu độc lập: KYC, tín nhiệm và lịch sử chủ dự án,
+            mục tiêu so với danh mục, tần suất giao dịch, độ lệch số tiền và hành vi ẩn danh.
+            {stats?.fraud_model ? ` Ngưỡng cảnh báo hiện tại: ${stats.fraud_model.threshold}%.` : ''}
+            {' '}Mỗi cảnh báo đều lưu bằng chứng để quản trị viên xác minh thay vì chỉ dựa vào một điểm số.
           </AIBox>
 
           <div className="flex items-center justify-between">
@@ -417,6 +441,7 @@ export function Admin({ tab = 'tong-quan' }) {
               </div>
               <div className="font-semibold">{f.entity_label || f.entity_id}</div>
               <div className="text-slate-600">{f.reason}</div>
+              <FraudSignals evidence={f.evidence} modelVersion={f.model_version} />
               {f.review_status === 'pending' ? (
                 <div className="flex flex-wrap gap-2">
                   <button className="btn-primary text-sm disabled:opacity-60" disabled={busy === f.id} onClick={() => reviewFlag(f, 'confirmed')}>Xác nhận — xử lý</button>
