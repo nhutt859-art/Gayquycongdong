@@ -239,7 +239,8 @@ Thứ tự ưu tiên khi không đặt `MAIL_PROVIDER`: `BREVO_API_KEY` → `RES
 | `npm run ai:refresh` | Huấn luyện lại + tạo lại toàn bộ dự báo/gợi ý |
 | `npm run ai:verify` | Kiểm tra model đang active, dự báo, gợi ý và cảnh báo gian lận đã lưu |
 | `npm run mail:test -- email@example.com` | Gửi email test qua dịch vụ đang cấu hình |
-| `npm run smoke` | 69 kiểm tra API; đặt `API_URL` nếu API không ở cổng 4000 |
+| `npm run smoke` | Kiểm tra API end-to-end; đặt `API_URL` nếu API không ở cổng 4000 |
+| `npm run smoke` + `SMOKE_REGISTER_EMAIL` | Kiểm tra đầy đủ đăng ký + xác thực email bằng hộp thư thật do bạn kiểm soát |
 
 Ví dụ smoke test với API cổng 4100:
 
@@ -247,6 +248,15 @@ Ví dụ smoke test với API cổng 4100:
 $env:API_URL='http://localhost:4100/api'
 node scripts/smoke.js
 ```
+
+Mặc định smoke test tạo tài khoản kiểm thử **trực tiếp trong DB** (đã xác thực email) để không gửi email ra ngoài. Nếu muốn kiểm tra đầy đủ luồng đăng ký + xác thực email, đặt `SMOKE_REGISTER_EMAIL` thành một hộp thư thật:
+
+```powershell
+$env:SMOKE_REGISTER_EMAIL='ban+smoke@example.com'
+npm run smoke
+```
+
+Script sẽ dùng email đó để đăng ký, gửi email xác thực thật và dọn tài khoản sau khi chạy. Không dùng địa chỉ giả kiểu `@gayquy.vn` vì sẽ bị bounce về hộp thư gửi.
 
 ## 6. API chính
 

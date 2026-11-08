@@ -233,32 +233,63 @@ async function main() {
   check('Gửi bình luận', comment.status === 201 && !!comment.data?.comment?.id);
 
   section('Đăng ký mới → KYC → tạo dự án');
-  const email = `smoke.${Date.now()}@gayquy.vn`;
-  const register = await request('POST', '/auth/register', {
-    body: { full_name: 'Người Dùng Smoke', email, password: PASSWORD },
-  });
-  check(
-    'Đăng ký tài khoản mới (chưa cấp token)',
-    register.status === 201 && register.data?.user?.email === email && !register.data?.token,
-    JSON.stringify(register.data),
-  );
-  registeredUserId = register.data?.user?.id;
+  const registerEmail = process.env.SMOKE_REGISTER_EMAIL || '';
+  let email;
 
-  let newToken;
-  if (register.data?.dev_verification_url) {
-    const verifyToken = new URL(register.data.dev_verification_url).searchParams.get('token');
-    const verify = await request('POST', '/auth/verify-email', { body: { token: verifyToken } });
-    check('Xác thực email tài khoản mới', verify.status === 200 && verify.data?.user?.email_verified === true, JSON.stringify(verify.data));
-  } else if (db && registeredUserId) {
-    await db.query('update users set email_verified_at = now() where id = $1', [registeredUserId]);
-    check('Xác thực email tài khoản mới (qua DB test)', true);
+  // Kiểm tra validate của endpoint đăng ký mà không gửi email.
+  const invalidRegister = await request('POST', '/auth/register', {
+    body: { full_name: 'Người Dùng Smoke', email: 'khong-phai-email', password: PASSWORD },
+  });
+  check('Đăng ký email không hợp lệ bị từ chối', invalidRegister.status === 400, JSON.stringify(invalidRegister.data));
+
+  const duplicateRegister = await request('POST', '/auth/register', {
+    body: { full_name: 'Người Dùng Smoke', email: BACKER_EMAIL, password: PASSWORD },
+  });
+  check('Đăng ký email đã tồn tại bị từ chối', duplicateRegister.status === 409, JSON.stringify(duplicateRegister.data));
+
+  if (registerEmail) {
+    // Chỉ chạy luồng đăng ký đầy đủ khi có hộp thư thật do người chạy kiểm soát.
+    email = registerEmail;
+    const register = await request('POST', '/auth/register', {
+      body: { full_name: 'Người Dùng Smoke', email, password: PASSWORD },
+    });
+    check(
+      'Đăng ký tài khoản mới (chưa cấp token)',
+      register.status === 201 && register.data?.user?.email === email && !register.data?.token,
+      JSON.stringify(register.data),
+    );
+    registeredUserId = register.data?.user?.id;
+
+    if (register.data?.dev_verification_url) {
+      const verifyToken = new URL(register.data.dev_verification_url).searchParams.get('token');
+      const verify = await request('POST', '/auth/verify-email', { body: { token: verifyToken } });
+      check('Xác thực email tài khoản mới', verify.status === 200 && verify.data?.user?.email_verified === true, JSON.stringify(verify.data));
+    } else if (db && registeredUserId) {
+      await db.query('update users set email_verified_at = now() where id = $1', [registeredUserId]);
+      check('Xác thực email tài khoản mới (qua DB test)', true);
+    } else {
+      check('Có cách xác thực email để chạy smoke', false, JSON.stringify(register.data));
+    }
   } else {
-    check('Có cách xác thực email để chạy smoke', false, JSON.stringify(register.data));
+    // Mặc định không gửi email ra ngoài: tạo tài khoản đã xác thực trực tiếp trong DB.
+    if (!db) {
+      throw new Error('Cần DATABASE_URL hoặc SMOKE_REGISTER_EMAIL để chạy phần đăng ký.');
+    }
+    email = `smoke.${Date.now()}@gayquy.invalid`;
+    const passwordHash = await bcrypt.hash(PASSWORD, 10);
+    const { rows } = await db.query(
+      `insert into users (full_name, email, password_hash, email_verified_at)
+       values ('Người Dùng Smoke', $1, $2, now())
+       returning id`,
+      [email, passwordHash],
+    );
+    registeredUserId = rows[0].id;
+    check('Tạo tài khoản kiểm thử đã xác thực (không gửi email)', true);
   }
 
   const newLogin = await request('POST', '/auth/login', { body: { email, password: PASSWORD } });
   check('Đăng nhập sau khi xác thực email', newLogin.status === 200 && !!newLogin.data?.token, JSON.stringify(newLogin.data));
-  newToken = newLogin.data?.token;
+  let newToken = newLogin.data?.token;
   if (!newToken) throw new Error('Không lấy được token đăng nhập sau xác thực email — dừng smoke test.');
 
   const noKyc = await request('POST', '/projects', {

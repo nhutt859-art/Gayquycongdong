@@ -222,6 +222,8 @@ npm run lint
 
 Đã kiểm thử API các luồng: đăng ký → xác thực email → đăng nhập, quên mật khẩu → đặt lại → JWT cũ bị vô hiệu hoá, khách xem/lọc, đăng ký → sở thích → KYC → tạo dự án → admin duyệt, tài trợ thành công/thất bại, bình luận/trả lời/báo cáo/theo dõi, quản lý dự án, giải ngân, admin duyệt/xử lý, thông báo.
 
+> Mặc định `npm run smoke` tạo tài khoản kiểm thử trực tiếp trong DB và **không gửi email ra ngoài**. Muốn kiểm tra đầy đủ đăng ký + xác thực email, đặt `SMOKE_REGISTER_EMAIL` thành hộp thư thật do bạn kiểm soát; không dùng địa chỉ giả kiểu `@gayquy.vn` vì email xác thực sẽ bị bounce.
+
 ## Phạm vi & lưu ý
 
 - Thanh toán và KYC đều **mô phỏng** phục vụ đồ án; không kết nối cổng thanh toán/OCR thật.
