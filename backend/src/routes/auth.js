@@ -50,10 +50,11 @@ const resetPasswordSchema = z.object({
 
 /** Chế độ dev: chưa có email thì trả OTP/liên kết trực tiếp để test. */
 function devLinkEnabled() {
+  // Không bao giờ trả OTP/liên kết trên production hoặc Render, kể cả khi
+  // vô tình đặt DEV_SHOW_OTP=true trong biến môi trường.
+  if (process.env.RENDER || process.env.NODE_ENV === 'production') return false;
   if (String(process.env.DEV_SHOW_OTP || '').toLowerCase() === 'true') return true;
-  // Không bao giờ trả OTP trên Render, kể cả khi quên đặt NODE_ENV=production.
-  if (process.env.RENDER) return false;
-  return !isMailConfigured() && process.env.NODE_ENV !== 'production';
+  return !isMailConfigured();
 }
 
 function deliveryMode() {
