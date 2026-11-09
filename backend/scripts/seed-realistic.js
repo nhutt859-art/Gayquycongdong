@@ -17,7 +17,7 @@ if (!connectionString) {
 }
 
 if (!APPLY && !DRY_RUN) {
-  console.log('\nĐây là script reseed dữ liệu thật cho môi trường demo.');
+  console.log('\nĐây là script reseed dữ liệu lịch sử mô phỏng cho môi trường demo.');
   console.log('Script sẽ xoá toàn bộ dự án/pledge/giao dịch cũ và tạo ~200 dự án lịch sử.');
   console.log('Tài khoản admin thật (email không phải @demo.vn / @gayquy.vn) được giữ lại.');
   console.log('Chạy thử không ghi database: npm run db:seed:realistic -- --dry-run');

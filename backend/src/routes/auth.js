@@ -7,6 +7,7 @@ import { asyncHandler } from '../lib/errors.js';
 import { parse } from '../lib/validate.js';
 import { USER_PUBLIC_COLUMNS, mapUser } from '../lib/mappers.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rate-limit.js';
 import { notify } from '../services/notifications.js';
 import { isMailConfigured, mailProvider, sendMail } from '../services/mailer.js';
 import { expiryFromNow, hashToken, newToken, newOtp } from '../lib/tokens.js';
@@ -15,6 +16,12 @@ const router = Router();
 
 const VERIFICATION_TTL_MINUTES = Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES || 1440);
 const RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 60);
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+
+// Giới hạn theo cả IP và email để chặn dò mật khẩu/OTP từ một máy hoặc nhắm vào một tài khoản.
+const byEmail = (req) => String(req.body?.email || '').trim().toLowerCase() || req.ip;
 
 const registerSchema = z.object({
   full_name: z.string().trim().min(2, 'Họ tên tối thiểu 2 ký tự.').max(120, 'Họ tên tối đa 120 ký tự.'),
@@ -236,6 +243,7 @@ async function buildSession(user) {
 // POST /api/auth/register — tạo tài khoản, gửi email xác thực
 router.post(
   '/register',
+  rateLimit({ name: 'register-ip', windowMs: HOUR, max: 10 }),
   asyncHandler(async (req, res) => {
     const body = parse(registerSchema, req.body);
     const email = body.email.toLowerCase();
@@ -270,6 +278,8 @@ router.post(
 // POST /api/auth/login
 router.post(
   '/login',
+  rateLimit({ name: 'login-ip', windowMs: 15 * MINUTE, max: 60 }),
+  rateLimit({ name: 'login-email', windowMs: 15 * MINUTE, max: 20, key: byEmail }),
   asyncHandler(async (req, res) => {
     const body = parse(loginSchema, req.body);
     const { rows } = await query(
@@ -297,6 +307,7 @@ router.post(
 // POST /api/auth/verify-email — xác thực bằng token trong email
 router.post(
   '/verify-email',
+  rateLimit({ name: 'verify-email-ip', windowMs: 15 * MINUTE, max: 30 }),
   asyncHandler(async (req, res) => {
     const body = parse(tokenSchema, req.body);
     const { rows } = await query(
@@ -331,6 +342,8 @@ router.post(
 // POST /api/auth/resend-verification — gửi lại email xác thực
 router.post(
   '/resend-verification',
+  rateLimit({ name: 'resend-verification-ip', windowMs: 15 * MINUTE, max: 10 }),
+  rateLimit({ name: 'resend-verification-email', windowMs: 15 * MINUTE, max: 5, key: byEmail }),
   asyncHandler(async (req, res) => {
     const body = parse(emailSchema, req.body);
     const { rows } = await query(
@@ -340,16 +353,14 @@ router.post(
     const user = rows[0];
 
     let url;
-    let delivered = false;
     if (user && !user.email_verified_at && user.status !== 'locked') {
       const mail = await sendVerificationEmail(user);
       url = mail.url;
-      delivered = mail.delivered;
     }
 
+    // Không tiết lộ email có tồn tại hay không.
     res.json({
       ok: true,
-      verification_sent: delivered,
       delivery: deliveryMode(),
       message: 'Nếu email tồn tại và chưa xác thực, chúng tôi đã gửi lại liên kết xác thực.',
       dev_verification_url: devLinkEnabled() ? url : undefined,
@@ -360,6 +371,8 @@ router.post(
 // POST /api/auth/forgot-password — gửi email mã OTP đặt lại mật khẩu
 router.post(
   '/forgot-password',
+  rateLimit({ name: 'forgot-password-ip', windowMs: 15 * MINUTE, max: 10 }),
+  rateLimit({ name: 'forgot-password-email', windowMs: 15 * MINUTE, max: 5, key: byEmail }),
   asyncHandler(async (req, res) => {
     const body = parse(emailSchema, req.body);
     const { rows } = await query(
@@ -368,18 +381,16 @@ router.post(
     );
     const user = rows[0];
 
-    let delivered = false;
     let otp;
     if (user && user.status !== 'locked') {
       const mail = await sendResetEmail(user);
-      delivered = mail.delivered;
       otp = mail.otp;
     }
 
     const configured = isMailConfigured();
+    // Không trả về việc email có tồn tại/gửi thành công hay không để tránh dò tài khoản.
     res.json({
       ok: true,
-      reset_sent: delivered,
       delivery: deliveryMode(),
       mail_ready: configured,
       message: configured
@@ -394,6 +405,8 @@ router.post(
 // POST /api/auth/reset-password — đặt mật khẩu mới bằng mã OTP hoặc token
 router.post(
   '/reset-password',
+  rateLimit({ name: 'reset-password-ip', windowMs: 15 * MINUTE, max: 20 }),
+  rateLimit({ name: 'reset-password-email', windowMs: 15 * MINUTE, max: 10, key: byEmail }),
   asyncHandler(async (req, res) => {
     const body = parse(resetPasswordSchema, req.body);
     const passwordHash = await bcrypt.hash(body.password, 10);

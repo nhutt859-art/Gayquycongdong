@@ -43,7 +43,7 @@ async function run() {
 
   if (!seedOnly) {
     const schema = await fs.readFile(path.join(here, '..', 'db', 'schema.sql'), 'utf8');
-    console.log('🏗️  Đang tạo schema (16 bảng)...');
+    console.log('🏗️  Đang tạo schema (17 bảng)...');
     await client.query(schema);
     console.log('✅ Schema xong.');
   }

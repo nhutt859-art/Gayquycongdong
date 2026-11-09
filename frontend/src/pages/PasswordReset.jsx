@@ -44,13 +44,11 @@ export function ForgotPassword() {
         return;
       }
 
-      setInfo(res.message || 'Nếu email tồn tại, mã xác nhận (OTP) đã được gửi đến hộp thư của bạn.');
+      setInfo(
+        res.message ||
+          'Nếu email tồn tại trong hệ thống, mã xác nhận (OTP) đã được gửi. Không nhận được sau 1–2 phút? Hãy kiểm tra mục Spam hoặc bấm “Gửi lại mã”.',
+      );
       if (res.dev_otp) setDevOtp(res.dev_otp);
-      if (res.mail_ready && res.reset_sent === false) {
-        setInfo(
-          'Nếu email tồn tại trong hệ thống, mã xác nhận đã được gửi. Không nhận được sau 1–2 phút? Hãy kiểm tra mục Spam hoặc bấm “Gửi lại mã”.',
-        );
-      }
       setStep('verify');
     } catch (err) {
       setError(err.message);

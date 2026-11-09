@@ -38,6 +38,11 @@ if (!isMailConfigured()) {
 const app = express();
 const port = Number(process.env.PORT || 4000);
 
+// Render/Vercel đặt sau reverse proxy: cần tin 1 hop để req.ip là IP người dùng,
+// nhờ đó giới hạn tần suất theo IP hoạt động đúng.
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+
 const defaultAllowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
@@ -111,8 +116,17 @@ app.get('/api/health/mail', async (req, res) => {
     warning: mailConfigWarning() || undefined,
   };
 
-  // ?verify=1: kiểm tra thêm API key + sender đã xác minh bên Brevo.
+  // ?verify=1 gọi API của nhà cung cấp email (có thể tốn quota), nên chỉ cho phép
+  // khi đặt HEALTH_VERIFY_TOKEN và truyền đúng token: ?verify=1&token=...
   if (String(req.query.verify || '') === '1') {
+    const expected = String(process.env.HEALTH_VERIFY_TOKEN || '').trim();
+    const provided = String(req.query.token || '').trim();
+    if (!expected || provided !== expected) {
+      return res.status(403).json({
+        ok: false,
+        error: 'Không có quyền kiểm tra cấu hình email.',
+      });
+    }
     payload.verify = await verifyMailConfig();
   }
 

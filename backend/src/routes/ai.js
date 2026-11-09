@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { asyncHandler } from '../lib/errors.js';
 import { parse } from '../lib/validate.js';
 import { optionalAuth } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rate-limit.js';
 import { getModelCard, predictSuccess } from '../services/ai.js';
 
 const router = Router();
@@ -29,6 +30,7 @@ function durationFrom(body) {
 // POST /api/ai/estimate — ước tính trước khi tạo dự án, có giải thích từng tín hiệu
 router.post(
   '/estimate',
+  rateLimit({ name: 'ai-estimate-ip', windowMs: 60 * 1000, max: 60 }),
   optionalAuth,
   asyncHandler(async (req, res) => {
     const body = parse(estimateSchema, req.body);

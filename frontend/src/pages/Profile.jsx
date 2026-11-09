@@ -179,7 +179,7 @@ export default function Profile() {
               <p className="mt-1 text-xs text-slate-500">
                 {verified
                   ? 'Tài khoản đã xác thực, đủ điều kiện tạo dự án gây quỹ.'
-                  : 'Xác thực KYC là bắt buộc trước khi tạo dự án. Bản demo duyệt tự động ngay lập tức.'}
+                  : 'Xác thực KYC là bắt buộc trước khi tạo dự án. Hệ thống KYC mô phỏng sẽ duyệt tự động ngay lập tức.'}
               </p>
               {!verified && (
                 <button className="btn-primary mt-2 w-full text-sm disabled:opacity-60" onClick={startKyc} disabled={kycBusy}>

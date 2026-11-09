@@ -205,7 +205,7 @@ Tài khoản quản trị production dùng tài khoản thật đã được gi�
 | Backend | Node.js, Express 5, `pg`, Zod, JWT (`jsonwebtoken`), bcrypt, Nodemailer (SMTP local) + Brevo/Resend/SendGrid HTTP API |
 | Database | PostgreSQL 15+ (Neon), 17 bảng, trigger đồng bộ số tiền |
 | AI | Logistic regression tự cài đặt, 5-fold cross-validation, giải thích theo đóng góp từng tín hiệu; không dùng thư viện ML nặng |
-| Kiểm thử | `scripts/smoke.js` (API end-to-end), Puppeteer (luồng UI chính) |
+| Kiểm thử | `scripts/smoke.js` (API end-to-end), build + lint frontend |
 
 ## Kiểm thử
 
@@ -232,6 +232,7 @@ npm run lint
 - Email xác thực / đặt lại mật khẩu dùng Brevo/Resend/SendGrid HTTP API hoặc SMTP (Nodemailer). Khi chưa cấu hình email trong `backend/.env`, nội dung được in ra console backend để test.
 - **Deploy Render free:** Render chặn outbound SMTP 25/465/587, nên đặt `BREVO_API_KEY` + `MAIL_FROM` trong Render → Environment (xem `backend/README.md`).
 - JWT lưu `localStorage`; logout xoá token phía client. Đặt lại mật khẩu sẽ tăng `token_version` và vô hiệu hoá mọi JWT cũ.
+- Các endpoint đăng ký/đăng nhập/quên mật khẩu có giới hạn tần suất theo IP và email; phản hồi quên mật khẩu/gửi lại xác thực không tiết lộ email có tồn tại hay không.
 - Không commit `backend/.env`.
 - Nếu dùng OneDrive, nên tạm dừng sync khi `npm install` để tránh lock file.
 

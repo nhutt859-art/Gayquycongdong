@@ -147,6 +147,7 @@ Sau đó vẫn chạy `npm run db:check` → `npm run db:setup` → `npm run dev
 | `EMAIL_VERIFICATION_TTL_MINUTES` | — | `1440` | Hạn liên kết xác thực email |
 | `PASSWORD_RESET_TTL_MINUTES` | — | `60` | Hạn mã OTP đặt lại mật khẩu |
 | `DEV_SHOW_OTP` | — | `false` | Chỉ local: trả OTP khi chưa cấu hình email |
+| `HEALTH_VERIFY_TOKEN` | — | rỗng | Token bí mật để gọi `GET /api/health/mail?verify=1&token=...` |
 
 ### 4.1 Email xác thực & đặt lại mật khẩu
 
@@ -156,7 +157,9 @@ Sau đó vẫn chạy `npm run db:check` → `npm run db:setup` → `npm run dev
 - Token chỉ lưu dạng SHA-256, dùng một lần. Đặt lại mật khẩu tăng `users.token_version` nên mọi JWT cũ bị từ chối.
 - Chưa cấu hình email: nội dung email + OTP được in ra console backend; API chỉ trả `dev_otp` khi chạy local (không phải Render) và chưa cấu hình email.
 - Kiểm tra nhanh cấu hình trên server: `GET /api/health/mail` → `{ ok, provider, from }`.
-- Kiểm tra API key + sender Brevo đã xác minh chưa: `GET /api/health/mail?verify=1` → `{ verify: { sender_found, sender_verified, ... } }`.
+- Kiểm tra API key + sender Brevo đã xác minh chưa: đặt `HEALTH_VERIFY_TOKEN`, rồi gọi `GET /api/health/mail?verify=1&token=<token>` → `{ verify: { sender_found, sender_verified, ... } }`. Nếu chưa đặt token, endpoint trả `403` để tránh người lạ gọi API nhà cung cấp email.
+- Các endpoint auth (`register`, `login`, `verify-email`, `resend-verification`, `forgot-password`, `reset-password`) có giới hạn tần suất theo IP và email (RAM, phù hợp 1 instance Render). Nếu chạy nhiều instance, thay bằng Redis/Upstash.
+- Quên mật khẩu và gửi lại xác thực luôn trả thông báo trung tính, không tiết lộ email có tồn tại hay không.
 
 > **Quan trọng khi deploy Render:** từ 26/09/2025, Render **free** chặn outbound SMTP cổng 25/465/587. Gmail SMTP sẽ timeout dù cấu hình đúng. Hãy dùng HTTP API (Brevo/Resend/SendGrid) — các dịch vụ này gửi qua HTTPS cổng 443.
 

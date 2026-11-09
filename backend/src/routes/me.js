@@ -65,7 +65,7 @@ router.patch(
   }),
 );
 
-// POST /api/me/kyc — demo: duyệt tự động ngay lập tức
+// POST /api/me/kyc — KYC mô phỏng: duyệt tự động ngay lập tức
 router.post(
   '/kyc',
   asyncHandler(async (req, res) => {
