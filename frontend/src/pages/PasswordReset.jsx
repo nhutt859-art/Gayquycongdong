@@ -65,8 +65,8 @@ export function ForgotPassword() {
       setError('Vui lòng nhập mã xác nhận (OTP).');
       return;
     }
-    if (password.length < 6) {
-      setError('Mật khẩu mới tối thiểu 6 ký tự.');
+    if (password.length < 8) {
+      setError('Mật khẩu mới tối thiểu 8 ký tự.');
       return;
     }
     if (password !== confirm) {
@@ -154,7 +154,7 @@ export function ForgotPassword() {
               <input
                 className="input mt-1"
                 type="password"
-                placeholder="Tối thiểu 6 ký tự"
+                placeholder="Tối thiểu 8 ký tự"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
@@ -257,8 +257,8 @@ export function ResetPassword() {
       setError('Vui lòng nhập mã xác nhận (OTP).');
       return;
     }
-    if (password.length < 6) {
-      setError('Mật khẩu tối thiểu 6 ký tự.');
+    if (password.length < 8) {
+      setError('Mật khẩu tối thiểu 8 ký tự.');
       return;
     }
     if (password !== confirm) {
@@ -323,7 +323,7 @@ export function ResetPassword() {
               <input
                 className="input mt-1"
                 type="password"
-                placeholder="Tối thiểu 6 ký tự"
+                placeholder="Tối thiểu 8 ký tự"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"

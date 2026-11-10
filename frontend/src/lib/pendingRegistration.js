@@ -10,7 +10,6 @@ function normalize(data) {
       full_name: data?.full_name || data?.user?.full_name || '',
     },
     delivery: data?.delivery || '',
-    verification_sent: data?.verification_sent,
     dev_verification_url: data?.dev_verification_url || '',
   };
 }
@@ -43,7 +42,6 @@ export function savePendingRegistration(data) {
         email: pending.user.email,
         full_name: pending.user.full_name,
         delivery: pending.delivery,
-        verification_sent: pending.verification_sent,
         dev_verification_url: pending.dev_verification_url,
         saved_at: Date.now(),
       }),

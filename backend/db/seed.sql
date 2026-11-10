@@ -1,6 +1,6 @@
 -- ============================================================
 --  DỮ LIỆU MẪU — 10 DỰ ÁN CỘNG ĐỒNG
---  Tài khoản demo (mật khẩu chung: 123456)
+--  Tài khoản demo (mật khẩu chung: 12345678)
 --    admin@demo.vn   / owner@demo.vn  / collab@demo.vn
 --    backer@demo.vn  / lan@demo.vn    / hung@demo.vn
 --  Ngày tháng dùng CURRENT_DATE để demo luôn còn dự án đang chạy.
@@ -12,16 +12,16 @@ BEGIN;
 -- USERS
 -- ============================================================
 INSERT INTO users (id, full_name, email, password_hash, phone, role, kyc_status, trust_score, status, created_at) VALUES
-('00000000-0000-4000-8000-000000000001', 'Quản trị viên', 'admin@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000001', 'admin', 'verified', 99, 'active', now() - interval '300 days'),
-('00000000-0000-4000-8000-000000000002', 'Minh Anh', 'backer@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000002', 'backer', 'none', 86, 'active', now() - interval '180 days'),
-('00000000-0000-4000-8000-000000000003', 'Ngọc Lan', 'lan@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000003', 'backer', 'verified', 90, 'active', now() - interval '170 days'),
-('00000000-0000-4000-8000-000000000004', 'Quốc Hùng', 'hung@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000004', 'backer', 'none', 78, 'active', now() - interval '120 days'),
-('00000000-0000-4000-8000-000000000005', 'Thu Thảo', 'thao@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000005', 'backer', 'verified', 83, 'active', now() - interval '100 days'),
-('00000000-0000-4000-8000-000000000006', 'Nhóm Sông Sạch', 'owner@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000006', 'owner', 'verified', 92, 'active', now() - interval '250 days'),
-('00000000-0000-4000-8000-000000000007', 'Quỹ Học Bổng Vùng Cao', 'quy@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000007', 'owner', 'verified', 95, 'active', now() - interval '240 days'),
-('00000000-0000-4000-8000-000000000008', 'Mái Ấm Y Tế', 'yte@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000008', 'owner', 'verified', 89, 'active', now() - interval '220 days'),
-('00000000-0000-4000-8000-000000000009', 'Tài khoản nghi vấn', 'xau@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000009', 'owner', 'none', 21, 'locked', now() - interval '20 days'),
-('00000000-0000-4000-8000-000000000010', 'Lan Phương', 'collab@demo.vn', '$2b$10$PtqrGRKs7cz2UUIgLHYK5OPbpMfNIQbwyqJ19GNZ2/uVx0W/XuPpu', '0900000010', 'backer', 'verified', 88, 'active', now() - interval '160 days');
+('00000000-0000-4000-8000-000000000001', 'Quản trị viên', 'admin@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000001', 'admin', 'verified', 99, 'active', now() - interval '300 days'),
+('00000000-0000-4000-8000-000000000002', 'Minh Anh', 'backer@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000002', 'backer', 'none', 86, 'active', now() - interval '180 days'),
+('00000000-0000-4000-8000-000000000003', 'Ngọc Lan', 'lan@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000003', 'backer', 'verified', 90, 'active', now() - interval '170 days'),
+('00000000-0000-4000-8000-000000000004', 'Quốc Hùng', 'hung@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000004', 'backer', 'none', 78, 'active', now() - interval '120 days'),
+('00000000-0000-4000-8000-000000000005', 'Thu Thảo', 'thao@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000005', 'backer', 'verified', 83, 'active', now() - interval '100 days'),
+('00000000-0000-4000-8000-000000000006', 'Nhóm Sông Sạch', 'owner@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000006', 'owner', 'verified', 92, 'active', now() - interval '250 days'),
+('00000000-0000-4000-8000-000000000007', 'Quỹ Học Bổng Vùng Cao', 'quy@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000007', 'owner', 'verified', 95, 'active', now() - interval '240 days'),
+('00000000-0000-4000-8000-000000000008', 'Mái Ấm Y Tế', 'yte@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000008', 'owner', 'verified', 89, 'active', now() - interval '220 days'),
+('00000000-0000-4000-8000-000000000009', 'Tài khoản nghi vấn', 'xau@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000009', 'owner', 'none', 21, 'locked', now() - interval '20 days'),
+('00000000-0000-4000-8000-000000000010', 'Lan Phương', 'collab@demo.vn', '$2b$10$SGBsGHYZFIZUYuvBfr1h2.d40mMVI0GuWAV6K316qUDeL1ajDTKDa', '0900000010', 'backer', 'verified', 88, 'active', now() - interval '160 days');
 
 -- Tài khoản demo đã được xác thực email từ trước.
 UPDATE users SET email_verified_at = created_at;

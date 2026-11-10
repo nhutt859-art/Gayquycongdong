@@ -151,7 +151,8 @@ Sau đó vẫn chạy `npm run db:check` → `npm run db:setup` → `npm run dev
 
 ### 4.1 Email xác thực & đặt lại mật khẩu
 
-- Đăng ký mới tạo tài khoản **chưa xác thực**; backend gửi liên kết `${APP_URL}/xac-thuc-email?token=...`.
+- Đăng ký mới tạo tài khoản **chưa xác thực**; backend gửi liên kết `${APP_URL}/xac-thuc-email?token=...`. Mật khẩu tối thiểu **8 ký tự**.
+- Phản hồi `POST /auth/register` luôn trung tính với mọi email hợp lệ. Nếu email đã tồn tại, backend không tạo trùng mà gửi email hướng dẫn đăng nhập/đặt lại mật khẩu (hoặc gửi lại liên kết xác thực nếu tài khoản chưa xác thực).
 - Chưa xác thực email thì `POST /auth/login` trả `403` với `details.code = EMAIL_NOT_VERIFIED`.
 - Quên mật khẩu gửi **mã OTP 6 chữ số** qua email; người dùng nhập OTP trên trang web. Mã hết hạn sau 60 phút.
 - Token chỉ lưu dạng SHA-256, dùng một lần. Đặt lại mật khẩu tăng `users.token_version` nên mọi JWT cũ bị từ chối.
@@ -159,7 +160,7 @@ Sau đó vẫn chạy `npm run db:check` → `npm run db:setup` → `npm run dev
 - Kiểm tra nhanh cấu hình trên server: `GET /api/health/mail` → `{ ok, provider, from }`.
 - Kiểm tra API key + sender Brevo đã xác minh chưa: đặt `HEALTH_VERIFY_TOKEN`, rồi gọi `GET /api/health/mail?verify=1&token=<token>` → `{ verify: { sender_found, sender_verified, ... } }`. Nếu chưa đặt token, endpoint trả `403` để tránh người lạ gọi API nhà cung cấp email.
 - Các endpoint auth (`register`, `login`, `verify-email`, `resend-verification`, `forgot-password`, `reset-password`) có giới hạn tần suất theo IP và email (RAM, phù hợp 1 instance Render). Nếu chạy nhiều instance, thay bằng Redis/Upstash.
-- Quên mật khẩu và gửi lại xác thực luôn trả thông báo trung tính, không tiết lộ email có tồn tại hay không.
+- Đăng ký, quên mật khẩu và gửi lại xác thực luôn trả thông báo trung tính, không tiết lộ email có tồn tại hay không.
 
 > **Quan trọng khi deploy Render:** từ 26/09/2025, Render **free** chặn outbound SMTP cổng 25/465/587. Gmail SMTP sẽ timeout dù cấu hình đúng. Hãy dùng HTTP API (Brevo/Resend/SendGrid) — các dịch vụ này gửi qua HTTPS cổng 443.
 
@@ -282,7 +283,7 @@ Tất cả dưới tiền tố `/api`. Route cần đăng nhập dùng header `A
 
 ## 7. Tài khoản thử nghiệm
 
-Mật khẩu chung: **`123456`**
+Mật khẩu chung: **`12345678`**
 
 | Email | Vai trò |
 |---|---|

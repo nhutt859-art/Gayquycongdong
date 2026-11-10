@@ -33,7 +33,7 @@ const client = new Client({
 
 const NOW = new Date();
 const DAY = 86_400_000;
-const PASSWORD_HASH = bcrypt.hashSync('123456', 10);
+const PASSWORD_HASH = bcrypt.hashSync('12345678', 10);
 
 // PRNG cố định để bộ dữ liệu tái lập được.
 function mulberry32(seed) {
@@ -1513,7 +1513,7 @@ async function main() {
   `);
   console.log('AI:', JSON.stringify(finalCounts.rows[0]));
 
-  console.log('\nTài khoản thử nghiệm (mật khẩu 123456):');
+  console.log('\nTài khoản thử nghiệm (mật khẩu 12345678):');
   for (const test of TEST_USERS) console.log(`  - ${test.email} (${test.role})`);
   console.log('\nHoàn tất.\n');
 }

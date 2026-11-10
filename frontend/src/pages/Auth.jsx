@@ -31,8 +31,8 @@ function getFieldErrors(mode, { fullName, email, password }) {
         : '',
     password: !password
       ? 'Vui lòng nhập mật khẩu.'
-      : mode === 'register' && password.length < 6
-        ? 'Mật khẩu tối thiểu 6 ký tự.'
+      : mode === 'register' && password.length < 8
+        ? 'Mật khẩu tối thiểu 8 ký tự.'
         : '',
   };
 }
@@ -100,7 +100,8 @@ export function Auth() {
         nav(targetAfterLogin(user, from), { replace: true });
       } else {
         const result = await register({ full_name: fullName, email, password });
-        setPending(savePendingRegistration(result));
+        // Backend trả phản hồi trung tính; dùng email người dùng vừa nhập để hiển thị.
+        setPending(savePendingRegistration({ ...result, full_name: fullName, email }));
         setPassword('');
         setSubmitted(false);
         setTouched({ fullName: false, email: false, password: false });
@@ -156,21 +157,16 @@ export function Auth() {
       <div className="mx-auto max-w-md space-y-4">
         <div className="card space-y-3 p-6">
           <div className="text-3xl">📬</div>
-          <h1 className="text-xl font-bold">Kiểm tra email để kích hoạt</h1>
+          <h1 className="text-xl font-bold">Kiểm tra email của bạn</h1>
           <p className="text-sm text-slate-600">
-            Tài khoản <b>{pending.user?.email}</b> đã được lưu trong cơ sở dữ liệu. Bấm liên kết xác thực trong email để kích hoạt, sau đó đăng nhập.
+            Chúng tôi đã gửi hướng dẫn tiếp theo tới <b>{pending.user?.email}</b>. Nếu đây là email mới, hãy bấm liên kết xác thực để kích hoạt tài khoản. Nếu email đã có tài khoản, bạn sẽ nhận hướng dẫn đăng nhập hoặc đặt lại mật khẩu.
           </p>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
             Bạn có thể tải lại trang — thông tin đăng ký vẫn được giữ lại.
           </div>
           {pending.delivery === 'console' && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              <b>Chế độ dev:</b> backend chưa cấu hình SMTP nên liên kết xác thực được in ở console backend.
-            </div>
-          )}
-          {pending.delivery === 'smtp' && pending.verification_sent === false && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-              Không gửi được email xác thực. Kiểm tra cấu hình SMTP trong <code>backend/.env</code> rồi bấm gửi lại.
+              <b>Chế độ dev:</b> backend chưa cấu hình SMTP nên nội dung email được in ở console backend.
             </div>
           )}
           {pending.dev_verification_url && (
@@ -274,7 +270,7 @@ export function Auth() {
             id="password"
             className={`input mt-1 ${showError('password') ? 'input-error' : ''}`}
             type="password"
-            placeholder={mode === 'register' ? 'Tối thiểu 6 ký tự' : 'Nhập mật khẩu'}
+            placeholder={mode === 'register' ? 'Tối thiểu 8 ký tự' : 'Nhập mật khẩu'}
             value={password}
             onChange={(e) => {
               setPassword(e.target.value);

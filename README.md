@@ -25,6 +25,8 @@
 DACNTT/
 ├── backend/     # API, schema.sql, seed.sql, scripts, README hướng dẫn Neon
 ├── frontend/    # React app, README, README-UC-TRACE.md
+├── mobile/      # Ứng dụng Expo (React Native) dùng chung backend
+├── .github/     # GitHub Actions CI
 └── Usecase Database.docx
 ```
 
@@ -76,6 +78,17 @@ Mở <http://localhost:5173>. Nếu backend chạy cổng khác 4000:
 $env:VITE_PROXY_TARGET='http://localhost:4100'
 npm run dev
 ```
+
+### 3. Mobile (Expo)
+
+```powershell
+cd mobile
+npm install
+Copy-Item .env.example .env
+npm start
+```
+
+App dùng chung backend production `https://gayquy-backend.onrender.com/api`. Chọn `a` (Android), `i` (iOS) hoặc `w` (bản web để kiểm tra nhanh). Chi tiết cấu hình, danh sách màn hình và build EAS: [`mobile/README.md`](mobile/README.md).
 
 ### Kết nối Neon
 
@@ -166,7 +179,7 @@ Mỗi cảnh báo lưu trong `fraud_flags.evidence` danh sách tín hiệu độ
 
 ## Tài khoản thử nghiệm
 
-Mật khẩu chung: **`123456`**
+Mật khẩu chung: **`12345678`**
 
 | Email | Vai trò |
 |---|---|
@@ -202,10 +215,11 @@ Tài khoản quản trị production dùng tài khoản thật đã được gi�
 | Lớp | Công nghệ |
 |---|---|
 | Frontend | React 19, Vite 8, React Router 7, Tailwind CSS 3, Oxlint |
+| Mobile | Expo SDK 58, React Native 0.88, React Navigation 7, SecureStore/AsyncStorage |
 | Backend | Node.js, Express 5, `pg`, Zod, JWT (`jsonwebtoken`), bcrypt, Nodemailer (SMTP local) + Brevo/Resend/SendGrid HTTP API |
 | Database | PostgreSQL 15+ (Neon), 17 bảng, trigger đồng bộ số tiền |
 | AI | Logistic regression tự cài đặt, 5-fold cross-validation, giải thích theo đóng góp từng tín hiệu; không dùng thư viện ML nặng |
-| Kiểm thử | `scripts/smoke.js` (API end-to-end), build + lint frontend |
+| Kiểm thử | `scripts/smoke.js` (API end-to-end), build + lint frontend, Expo export mobile, GitHub Actions CI |
 
 ## Kiểm thử
 
@@ -218,7 +232,13 @@ npm run smoke
 cd frontend
 npm run build
 npm run lint
+
+# Kiểm tra mobile bundle web
+cd ../mobile
+npm run export:web
 ```
+
+GitHub Actions workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) chạy 3 job: frontend build/lint, backend (PostgreSQL 16 + seed + `ai:verify` + smoke), và mobile Expo export web.
 
 Đã kiểm thử API các luồng: đăng ký → xác thực email → đăng nhập, quên mật khẩu → đặt lại → JWT cũ bị vô hiệu hoá, khách xem/lọc, đăng ký → sở thích → KYC → tạo dự án → admin duyệt, tài trợ thành công/thất bại, bình luận/trả lời/báo cáo/theo dõi, quản lý dự án, giải ngân, admin duyệt/xử lý, thông báo.
 
@@ -232,7 +252,7 @@ npm run lint
 - Email xác thực / đặt lại mật khẩu dùng Brevo/Resend/SendGrid HTTP API hoặc SMTP (Nodemailer). Khi chưa cấu hình email trong `backend/.env`, nội dung được in ra console backend để test.
 - **Deploy Render free:** Render chặn outbound SMTP 25/465/587, nên đặt `BREVO_API_KEY` + `MAIL_FROM` trong Render → Environment (xem `backend/README.md`).
 - JWT lưu `localStorage`; logout xoá token phía client. Đặt lại mật khẩu sẽ tăng `token_version` và vô hiệu hoá mọi JWT cũ.
-- Các endpoint đăng ký/đăng nhập/quên mật khẩu có giới hạn tần suất theo IP và email; phản hồi quên mật khẩu/gửi lại xác thực không tiết lộ email có tồn tại hay không.
+- Các endpoint đăng ký/đăng nhập/quên mật khẩu có giới hạn tần suất theo IP và email; phản hồi đăng ký, quên mật khẩu, gửi lại xác thực không tiết lộ email có tồn tại hay không. Mật khẩu tối thiểu 8 ký tự.
 - Không commit `backend/.env`.
 - Nếu dùng OneDrive, nên tạm dừng sync khi `npm install` để tránh lock file.
 

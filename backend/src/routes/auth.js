@@ -26,7 +26,7 @@ const byEmail = (req) => String(req.body?.email || '').trim().toLowerCase() || r
 const registerSchema = z.object({
   full_name: z.string().trim().min(2, 'Họ tên tối thiểu 2 ký tự.').max(120, 'Họ tên tối đa 120 ký tự.'),
   email: z.string().trim().email('Email không hợp lệ.').max(160),
-  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự.').max(72),
+  password: z.string().min(8, 'Mật khẩu tối thiểu 8 ký tự.').max(72),
 });
 
 const loginSchema = z.object({
@@ -45,7 +45,7 @@ const tokenSchema = z.object({
 const resetPasswordSchema = z.object({
   email: z.string().trim().email('Email không hợp lệ.').optional(),
   token: z.string().trim().min(4, 'Mã xác nhận tối thiểu 4 ký tự.').max(500),
-  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự.').max(72),
+  password: z.string().min(8, 'Mật khẩu tối thiểu 8 ký tự.').max(72),
 });
 
 /** Chế độ dev: chưa có email thì trả OTP/liên kết trực tiếp để test. */
@@ -217,6 +217,44 @@ async function sendResetEmail(user) {
   return { delivered, otp };
 }
 
+async function sendAccountExistsEmail(user) {
+  const loginUrl = `${appUrl()}/dang-nhap`;
+  const forgotUrl = `${appUrl()}/quen-mat-khau`;
+
+  const text = [
+    `Xin chào ${user.full_name},`,
+    '',
+    'Email này đã được dùng để đăng ký tài khoản GâyQuỹ+.',
+    'Nếu bạn muốn đăng nhập, hãy mở: ' + loginUrl,
+    'Nếu bạn quên mật khẩu, hãy đặt lại tại: ' + forgotUrl,
+    '',
+    'Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email — tài khoản hiện tại vẫn an toàn.',
+  ].join('\n');
+
+  const html = emailLayout({
+    title: 'Tài khoản GâyQuỹ+ đã tồn tại',
+    intro: `Xin chào <b>${escapeHtml(user.full_name)}</b>, email này đã được dùng để đăng ký tài khoản GâyQuỹ+. Bạn có thể đăng nhập bằng mật khẩu hiện tại, hoặc đặt lại mật khẩu nếu đã quên.`,
+    buttonText: 'Đăng nhập',
+    url: loginUrl,
+    footer: `Quên mật khẩu? <a href="${forgotUrl}" style="color:#047857">Đặt lại mật khẩu</a>. Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email — tài khoản hiện tại vẫn an toàn.`,
+  });
+
+  let delivered = false;
+  try {
+    const result = await sendMail({
+      to: user.email,
+      subject: '[GâyQuỹ+] Tài khoản của bạn đã tồn tại',
+      text,
+      html,
+    });
+    delivered = result.delivered;
+  } catch (err) {
+    console.error('[mail] Không gửi được email thông báo tài khoản đã tồn tại:', err.message);
+  }
+
+  return { delivered };
+}
+
 async function buildSession(user) {
   const interests = await query(
     `select ui.category_id, c.name, ui.weight
@@ -241,37 +279,66 @@ async function buildSession(user) {
   };
 }
 
-// POST /api/auth/register — tạo tài khoản, gửi email xác thực
+// POST /api/auth/register — phản hồi trung tính, không tiết lộ email đã tồn tại
 router.post(
   '/register',
   rateLimit({ name: 'register-ip', windowMs: HOUR, max: 10 }),
+  rateLimit({ name: 'register-email', windowMs: HOUR, max: 3, key: byEmail }),
   asyncHandler(async (req, res) => {
     const body = parse(registerSchema, req.body);
     const email = body.email.toLowerCase();
 
-    const existed = await query('select 1 from users where lower(email) = $1', [email]);
-    if (existed.rowCount) throw new ApiError(409, 'Email đã tồn tại, hãy đăng nhập.');
+    let user = null;
+    let created = false;
 
-    const passwordHash = await bcrypt.hash(body.password, 10);
-    const { rows } = await query(
-      `insert into users (full_name, email, password_hash)
-       values ($1, $2, $3)
-       returning ${USER_PUBLIC_COLUMNS}`,
-      [body.full_name, email, passwordHash],
+    const existed = await query(
+      `select ${USER_PUBLIC_COLUMNS} from users where lower(email) = $1`,
+      [email],
     );
-    const user = rows[0];
+    user = existed.rows[0] || null;
 
-    const mail = await sendVerificationEmail(user);
+    if (!user) {
+      const passwordHash = await bcrypt.hash(body.password, 10);
+      try {
+        const { rows } = await query(
+          `insert into users (full_name, email, password_hash)
+           values ($1, $2, $3)
+           returning ${USER_PUBLIC_COLUMNS}`,
+          [body.full_name, email, passwordHash],
+        );
+        user = rows[0];
+        created = true;
+      } catch (err) {
+        // Hai yêu cầu đồng thời cho cùng email: coi như email đã tồn tại.
+        if (err?.code !== '23505') throw err;
+        const again = await query(
+          `select ${USER_PUBLIC_COLUMNS} from users where lower(email) = $1`,
+          [email],
+        );
+        user = again.rows[0] || null;
+      }
+    }
 
+    let devUrl;
+    if (user && user.status !== 'locked') {
+      if (!user.email_verified_at) {
+        // Tài khoản mới hoặc tài khoản cũ chưa xác thực: gửi liên kết xác thực.
+        const mail = await sendVerificationEmail(user);
+        if (devLinkEnabled()) devUrl = mail.url;
+      } else if (!created) {
+        // Email đã có tài khoản: gửi hướng dẫn đăng nhập/đặt lại mật khẩu.
+        await sendAccountExistsEmail(user);
+      }
+    }
+
+    // Luôn trả cùng một thông báo cho mọi email hợp lệ để chống dò tài khoản.
     res.status(201).json({
-      user: mapUser(user),
-      email_verified: false,
-      verification_sent: mail.delivered,
+      ok: true,
+      email,
       delivery: deliveryMode(),
-      message: mail.delivered
-        ? `Đã gửi liên kết xác thực tới ${user.email}. Vui lòng kiểm tra hộp thư (cả mục Spam).`
-        : 'Chưa cấu hình SMTP nên liên kết xác thực được in ở console backend.',
-      dev_verification_url: devLinkEnabled() ? mail.url : undefined,
+      message:
+        'Nếu email hợp lệ, chúng tôi đã gửi hướng dẫn tiếp theo. Vui lòng kiểm tra hộp thư (cả mục Spam).',
+      dev_verification_url: devUrl,
     });
   }),
 );

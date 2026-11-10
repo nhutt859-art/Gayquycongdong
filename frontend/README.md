@@ -34,7 +34,7 @@ VITE_API_URL=/api
 
 ## 3. Tài khoản thử nghiệm
 
-Mật khẩu chung: **`123456`**
+Mật khẩu chung: **`12345678`**
 
 | Email | Vai trò |
 |---|---|

@@ -20,7 +20,7 @@ npm install
 npm run dev
 ```
 
-Mật khẩu chung cho tài khoản thử nghiệm: `123456`. Chi tiết cấu hình Neon xem `backend/README.md`.
+Mật khẩu chung cho tài khoản thử nghiệm: `12345678`. Chi tiết cấu hình Neon xem `backend/README.md`.
 
 ## Bảng truy vết
 

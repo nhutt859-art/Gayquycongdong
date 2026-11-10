@@ -14,7 +14,7 @@ import { Client } from 'pg';
 const BASE = process.env.API_URL || 'http://localhost:4000/api';
 const BACKER_EMAIL = process.env.SMOKE_BACKER_EMAIL || 'minhanh.nguyen@gayquy.vn';
 const COLLAB_EMAIL = process.env.SMOKE_COLLAB_EMAIL || 'thu.ha.le@gayquy.vn';
-const PASSWORD = '123456';
+const PASSWORD = '12345678';
 
 let passed = 0;
 let failed = 0;
@@ -22,6 +22,7 @@ const failures = [];
 
 let db = null;
 let tempAdminId = null;
+let tempDuplicateUserId = null;
 let registeredUserId = null;
 let backerId = null;
 let smokeCommentProjectId = null;
@@ -119,7 +120,10 @@ async function cleanup() {
     }
     if (registeredUserId) {
       await db.query(`delete from fraud_flags where entity_type = 'user' and entity_id = $1`, [registeredUserId]);
-      await db.query('delete from users where id = $1', [registeredUserId]);
+      await db.query('delete from users where id = $1 and created_at >= $2', [registeredUserId, smokeStartedAt]);
+    }
+    if (tempDuplicateUserId) {
+      await db.query('delete from users where id = $1 and created_at >= $2', [tempDuplicateUserId, smokeStartedAt]);
     }
     if (backerId) {
       await db.query(`delete from comments where user_id = $1 and content like 'Smoke test:%'`, [backerId]);
@@ -242,10 +246,37 @@ async function main() {
   });
   check('Đăng ký email không hợp lệ bị từ chối', invalidRegister.status === 400, JSON.stringify(invalidRegister.data));
 
-  const duplicateRegister = await request('POST', '/auth/register', {
-    body: { full_name: 'Người Dùng Smoke', email: BACKER_EMAIL, password: PASSWORD },
+  const shortPasswordRegister = await request('POST', '/auth/register', {
+    body: { full_name: 'Người Dùng Smoke', email: `smoke.short.${Date.now()}@gayquy.invalid`, password: '1234567' },
   });
-  check('Đăng ký email đã tồn tại bị từ chối', duplicateRegister.status === 409, JSON.stringify(duplicateRegister.data));
+  check('Đăng ký mật khẩu dưới 8 ký tự bị từ chối', shortPasswordRegister.status === 400, JSON.stringify(shortPasswordRegister.data));
+
+  if (db) {
+    // Dùng tài khoản tạm bị khóa để kiểm tra phản hồi trung tính mà không gửi email ra ngoài.
+    const dupEmail = `smoke.dup.${Date.now()}@gayquy.invalid`;
+    const dupHash = await bcrypt.hash(PASSWORD, 10);
+    const dup = await db.query(
+      `insert into users (full_name, email, password_hash, status, email_verified_at)
+       values ('Smoke Duplicate', $1, $2, 'locked', now())
+       returning id`,
+      [dupEmail, dupHash],
+    );
+    tempDuplicateUserId = dup.rows[0].id;
+    const duplicateRegister = await request('POST', '/auth/register', {
+      body: { full_name: 'Người Dùng Smoke', email: dupEmail, password: PASSWORD },
+    });
+    check(
+      'Đăng ký email đã tồn tại trả phản hồi trung tính',
+      duplicateRegister.status === 201 &&
+        duplicateRegister.data?.ok === true &&
+        !duplicateRegister.data?.user &&
+        !duplicateRegister.data?.token &&
+        /Nếu email hợp lệ/.test(duplicateRegister.data?.message || ''),
+      JSON.stringify(duplicateRegister.data),
+    );
+  } else {
+    check('Bỏ qua kiểm tra email trùng (không có DATABASE_URL)', true);
+  }
 
   if (registerEmail) {
     // Chỉ chạy luồng đăng ký đầy đủ khi có hộp thư thật do người chạy kiểm soát.
@@ -254,11 +285,17 @@ async function main() {
       body: { full_name: 'Người Dùng Smoke', email, password: PASSWORD },
     });
     check(
-      'Đăng ký tài khoản mới (chưa cấp token)',
-      register.status === 201 && register.data?.user?.email === email && !register.data?.token,
+      'Đăng ký tài khoản mới trả phản hồi trung tính (chưa cấp token)',
+      register.status === 201 &&
+        register.data?.email === email.toLowerCase() &&
+        !register.data?.token &&
+        !register.data?.user,
       JSON.stringify(register.data),
     );
-    registeredUserId = register.data?.user?.id;
+    if (db) {
+      const regRows = await db.query('select id from users where lower(email) = $1', [email.toLowerCase()]);
+      registeredUserId = regRows.rows[0]?.id || null;
+    }
 
     if (register.data?.dev_verification_url) {
       const verifyToken = new URL(register.data.dev_verification_url).searchParams.get('token');
