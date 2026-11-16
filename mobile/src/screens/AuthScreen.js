@@ -17,6 +17,8 @@ export default function AuthScreen({ navigation, route }) {
   const [error, setError] = useState('');
   const [pending, setPending] = useState(null);
   const [resendBusy, setResendBusy] = useState(false);
+  const emailError =
+    email.trim() && !EMAIL_RE.test(email.trim()) ? 'Email không hợp lệ.' : '';
 
   const switchMode = (next) => {
     setMode(next);
@@ -83,12 +85,12 @@ export default function AuthScreen({ navigation, route }) {
     return (
       <Screen>
         <Card style={{ padding: 22, alignItems: 'center' }}>
-          <Text style={{ fontSize: 44 }}>📬</Text>
-          <Text style={{ fontSize: 20, fontWeight: '900', marginTop: 8 }}>Kiểm tra email của bạn</Text>
+          <Text style={{ fontSize: 44 }}>🎉</Text>
+          <Text style={{ fontSize: 20, fontWeight: '900', marginTop: 8 }}>Đăng ký thành công</Text>
           <Text style={{ fontSize: 13, color: colors.muted, textAlign: 'center', marginTop: 6, lineHeight: 20 }}>
-            Chúng tôi đã gửi hướng dẫn tiếp theo tới <Text style={{ fontWeight: '800', color: colors.text }}>{pending.email}</Text>.
-            Nếu đây là email mới, hãy bấm liên kết xác thực để kích hoạt tài khoản. Nếu email đã có tài khoản, bạn sẽ nhận
-            hướng dẫn đăng nhập hoặc đặt lại mật khẩu.
+            Tài khoản với email <Text style={{ fontWeight: '800', color: colors.text }}>{pending.email}</Text> đã được tạo.
+            Chúng tôi đã gửi liên kết xác thực tới email này. Hãy mở hộp thư (cả mục Spam), bấm liên kết xác thực để kích hoạt
+            tài khoản rồi đăng nhập.
           </Text>
           {pending.delivery === 'console' ? (
             <View style={{ backgroundColor: colors.amberSoft, borderRadius: 10, padding: 10, marginTop: 12 }}>
@@ -175,10 +177,11 @@ export default function AuthScreen({ navigation, route }) {
           label="Email"
           value={email}
           onChangeText={setEmail}
-          placeholder="ban@example.com"
+          placeholder="Nhập email"
           keyboardType="email-address"
           autoCapitalize="none"
           autoCorrect={false}
+          error={emailError}
         />
         <Input
           label="Mật khẩu"
@@ -208,8 +211,8 @@ export default function AuthScreen({ navigation, route }) {
           </Pressable>
         ) : (
           <Text style={{ fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 10, lineHeight: 16 }}>
-            Sau khi đăng ký, bạn sẽ nhận email hướng dẫn xác thực. Tài khoản đã tồn tại sẽ nhận hướng dẫn đăng nhập thay vì
-            tạo trùng.
+            Sau khi đăng ký, bạn sẽ nhận email hướng dẫn xác thực. Nếu email đã được đăng ký trước đó, hệ thống sẽ báo
+            email đã tồn tại.
           </Text>
         )}
       </Card>

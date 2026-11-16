@@ -26,6 +26,7 @@ import {
 const TABS = [
   ['tong-quan', 'Tổng quan'],
   ['duyet-du-an', 'Duyệt dự án'],
+  ['du-an', 'Dự án & cộng tác'],
   ['giai-ngan', 'Giải ngân'],
   ['gian-lan', 'Gian lận & báo cáo'],
   ['nguoi-dung', 'Người dùng'],
@@ -63,6 +64,7 @@ export function Admin({ tab = 'tong-quan' }) {
   const [busy, setBusy] = useState('');
   const [stats, setStats] = useState(null);
   const [pendingProjects, setPendingProjects] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [payouts, setPayouts] = useState([]);
   const [flags, setFlags] = useState([]);
   const [reports, setReports] = useState([]);
@@ -83,6 +85,9 @@ export function Admin({ tab = 'tong-quan' }) {
       } else if (activeTab === 'duyet-du-an') {
         const data = await api.get('/admin/projects?status=pending_review');
         setPendingProjects(data?.items || []);
+      } else if (activeTab === 'du-an') {
+        const data = await api.get('/admin/projects');
+        setProjects(data?.items || []);
       } else if (activeTab === 'giai-ngan') {
         const data = await api.get('/admin/payouts');
         setPayouts(data?.items || []);
@@ -378,6 +383,77 @@ export function Admin({ tab = 'tong-quan' }) {
               </div>
             </div>
           ))}
+        </>
+      )}
+
+      {!loading && !error && activeTab === 'du-an' && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h1 className="text-lg font-bold">Dự án & cộng tác ({projects.length})</h1>
+            <button className="btn-ghost text-sm" onClick={refresh}>Làm mới</button>
+          </div>
+          {projects.length === 0 && <EmptyState icon="📁" title="Chưa có dự án nào" />}
+          {projects.map((p) => {
+            const collaborators = p.collaborators || [];
+            return (
+              <div key={p.id} className="card space-y-3 p-4 text-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-52 flex-1">
+                    <Link to={`/du-an/${p.id}`} className="font-bold link">{p.cover_emoji || '📁'} {p.title}</Link>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                      <StatusBadge status={p.status} />
+                      <span className="badge bg-slate-100">{p.category_name}</span>
+                      <span className="text-slate-500">Tạo {formatDate(p.created_at)}</span>
+                    </div>
+                  </div>
+                  <div className="text-right text-xs text-slate-500">
+                    <div><b className="text-slate-700">{vnd(p.current_amount)}</b> / {vnd(p.goal_amount)}</div>
+                    <div>{p.backer_count} nhà tài trợ · {p.reward_count} gói</div>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                    <div className="text-xs font-semibold text-emerald-700">Chủ dự án</div>
+                    <b>{p.owner_name}</b>
+                    <div className="mt-1 text-xs text-slate-600">{p.owner_email || 'Chưa có email'}</div>
+                    <div className="text-xs text-slate-600">SĐT: {p.owner_phone || 'Chưa cập nhật'}</div>
+                    <div className="mt-1 flex flex-wrap gap-1.5 text-xs">
+                      <span className={`badge ${p.owner_kyc_status === 'verified' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {kycVi[p.owner_kyc_status] || p.owner_kyc_status}
+                      </span>
+                      <span className="badge bg-white text-slate-600">Tin cậy {Math.round(Number(p.owner_trust_score || 0))}/100</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
+                    <div className="text-xs font-semibold text-indigo-700">Cộng tác viên ({collaborators.length})</div>
+                    {collaborators.length === 0 ? (
+                      <p className="mt-1 text-xs text-slate-500">Chưa có cộng tác viên.</p>
+                    ) : (
+                      <div className="mt-1 space-y-1.5">
+                        {collaborators.map((c) => (
+                          <div key={c.user_id} className="flex flex-wrap items-center justify-between gap-1 text-xs">
+                            <div>
+                              <b className="text-slate-800">{c.full_name}</b>
+                              <span className="text-slate-500"> · {c.email}</span>
+                              <div className="text-slate-400">
+                                {c.role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'}
+                                {c.accepted_at ? ` · đã nhận ${formatDate(c.accepted_at)}` : ' · chờ chấp nhận'}
+                              </div>
+                            </div>
+                            <span className={`badge ${c.accepted_at ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {c.accepted_at ? 'Đã tham gia' : 'Chờ duyệt'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </>
       )}
 

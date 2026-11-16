@@ -104,6 +104,16 @@ async function notifyAudience(db, projectId, { type = 'update', content, link, e
   );
 }
 
+async function notifyBackers(db, projectId, { type = 'collab', content, link, excludeUserId = null }) {
+  await db.query(
+    `insert into notifications (user_id, type, content, link)
+     select distinct x.user_id, $2, $3, $4
+       from (select backer_id as user_id from pledges where project_id = $1 and status = 'paid') x
+      where ($5::uuid is null or x.user_id <> $5)`,
+    [projectId, type, content, link, excludeUserId],
+  );
+}
+
 // ============================================================
 // GET /api/projects — danh sách + lọc + phân trang
 // ============================================================
@@ -253,8 +263,20 @@ router.get(
         [req.params.id],
       ),
       query(
-        `select c.*, u.full_name as user_name, u.avatar_url as user_avatar
-           from comments c join users u on u.id = c.user_id
+        `select c.*, u.full_name as user_name, u.avatar_url as user_avatar,
+                case
+                  when c.user_id = p.owner_id then 'owner'
+                  when exists (
+                    select 1 from project_collaborators pc
+                     where pc.project_id = c.project_id
+                       and pc.user_id = c.user_id
+                       and pc.accepted_at is not null
+                  ) then 'collaborator'
+                  else 'backer'
+                end as user_role
+           from comments c
+           join users u on u.id = c.user_id
+           join projects p on p.id = c.project_id
           where c.project_id = $1 order by c.created_at asc`,
         [req.params.id],
       ),
@@ -386,8 +408,9 @@ router.post(
     if (!category.rowCount) throw new ApiError(400, 'Danh mục không tồn tại.');
 
     const start = body.start_date || today();
+    if (start < today()) throw new ApiError(400, 'Ngày bắt đầu không được ở quá khứ.');
     if (body.end_date <= start) throw new ApiError(400, 'Ngày kết thúc phải sau ngày bắt đầu.');
-    if (body.end_date < today()) throw new ApiError(400, 'Ngày kết thúc phải ở tương lai.');
+    if (body.end_date < today()) throw new ApiError(400, 'Ngày kết thúc không được ở quá khứ.');
 
     const durationDays = Math.max(1, Math.ceil((Date.parse(body.end_date) - Date.parse(start)) / 86_400_000));
     const prediction = await predictSuccess({
@@ -498,6 +521,12 @@ router.patch(
 
     const start = body.start_date ?? project.start_date;
     const end = body.end_date ?? project.end_date;
+    if (body.start_date !== undefined && body.start_date < today()) {
+      throw new ApiError(400, 'Ngày bắt đầu không được ở quá khứ.');
+    }
+    if (body.end_date !== undefined && body.end_date < today()) {
+      throw new ApiError(400, 'Ngày kết thúc không được ở quá khứ.');
+    }
     if (end <= start) throw new ApiError(400, 'Ngày kết thúc phải sau ngày bắt đầu.');
 
     let categoryName = project.category_name;
@@ -665,6 +694,18 @@ router.post(
     const project = await query('select id, title, owner_id from projects where id = $1', [req.params.id]);
     if (!project.rowCount) throw new ApiError(404, 'Không tìm thấy dự án.');
 
+    const collab = await query(
+      `select 1 from project_collaborators
+        where project_id = $1 and user_id = $2 and accepted_at is not null`,
+      [req.params.id, req.user.id],
+    );
+    const userRole =
+      project.rows[0].owner_id === req.user.id
+        ? 'owner'
+        : collab.rowCount > 0
+          ? 'collaborator'
+          : 'backer';
+
     let parent = null;
     if (body.parent_comment_id) {
       const p = await query('select id, user_id from comments where id = $1 and project_id = $2', [
@@ -698,7 +739,12 @@ router.post(
     }
 
     res.status(201).json({
-      comment: { ...rows[0], user_name: req.user.full_name, user_avatar: req.user.avatar_url },
+      comment: {
+        ...rows[0],
+        user_name: req.user.full_name,
+        user_avatar: req.user.avatar_url,
+        user_role: userRole,
+      },
     });
   }),
 );
@@ -868,7 +914,7 @@ router.post(
   '/:id/rewards',
   requireAuth,
   asyncHandler(async (req, res) => {
-    await assertCanManage(pool, req.params.id, req.user);
+    await assertOwner(pool, req.params.id, req.user);
     const body = parse(rewardSchema, req.body);
     const { rows } = await query(
       `insert into rewards (project_id, title, description, min_amount, quantity_available)
@@ -883,7 +929,7 @@ router.patch(
   '/:id/rewards/:rewardId',
   requireAuth,
   asyncHandler(async (req, res) => {
-    await assertCanManage(pool, req.params.id, req.user);
+    await assertOwner(pool, req.params.id, req.user);
     const body = parse(rewardPatchSchema, req.body);
     const existing = await query('select * from rewards where id = $1 and project_id = $2', [
       req.params.rewardId,
@@ -917,7 +963,7 @@ router.delete(
   '/:id/rewards/:rewardId',
   requireAuth,
   asyncHandler(async (req, res) => {
-    await assertCanManage(pool, req.params.id, req.user);
+    await assertOwner(pool, req.params.id, req.user);
     const existing = await query(
       'select quantity_claimed from rewards where id = $1 and project_id = $2',
       [req.params.rewardId, req.params.id],
@@ -993,6 +1039,48 @@ router.post(
   }),
 );
 
+// Cộng tác viên tự rời dự án. Đặt trước route /:userId để không bị hiểu nhầm "me" là ID.
+router.delete(
+  '/:id/collaborators/me',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { rows } = await query(
+      `select p.title, p.owner_id, pc.role
+         from project_collaborators pc
+         join projects p on p.id = pc.project_id
+        where pc.project_id = $1 and pc.user_id = $2 and pc.accepted_at is not null`,
+      [req.params.id, req.user.id],
+    );
+    if (!rows.length) throw new ApiError(404, 'Bạn không phải cộng tác viên của dự án này.');
+    const project = rows[0];
+
+    await query(
+      'delete from project_collaborators where project_id = $1 and user_id = $2',
+      [req.params.id, req.user.id],
+    );
+
+    const link = `/du-an/${req.params.id}`;
+    await notifyAdmins(pool, {
+      type: 'collab',
+      content: `Cộng tác viên ${req.user.full_name} đã rời dự án “${project.title}”.`,
+      link,
+    });
+    await notifyBackers(pool, req.params.id, {
+      type: 'collab',
+      content: `Cộng tác viên ${req.user.full_name} đã rời dự án “${project.title}”.`,
+      link,
+      excludeUserId: req.user.id,
+    });
+    await notify(pool, project.owner_id, {
+      type: 'collab',
+      content: `Cộng tác viên ${req.user.full_name} đã rời dự án “${project.title}” của bạn.`,
+      link: `/quan-ly/${req.params.id}`,
+    });
+
+    res.json({ message: 'Đã rời dự án. Chủ dự án, quản trị viên và nhà tài trợ đã được thông báo.' });
+  }),
+);
+
 router.patch(
   '/:id/collaborators/:userId',
   requireAuth,
@@ -1013,13 +1101,51 @@ router.delete(
   '/:id/collaborators/:userId',
   requireAuth,
   asyncHandler(async (req, res) => {
-    await assertOwner(pool, req.params.id, req.user);
-    const { rows } = await query(
-      `delete from project_collaborators
-        where project_id = $1 and user_id = $2 returning user_id`,
+    const access = await assertOwner(pool, req.params.id, req.user);
+    const project = await query('select title, owner_id from projects where id = $1', [req.params.id]);
+
+    const removed = await query(
+      `select u.id, u.full_name, u.email
+         from project_collaborators pc
+         join users u on u.id = pc.user_id
+        where pc.project_id = $1 and pc.user_id = $2`,
       [req.params.id, req.params.userId],
     );
-    if (!rows.length) throw new ApiError(404, 'Không tìm thấy cộng tác viên.');
+    if (!removed.rowCount) throw new ApiError(404, 'Không tìm thấy cộng tác viên.');
+
+    await query(
+      'delete from project_collaborators where project_id = $1 and user_id = $2',
+      [req.params.id, req.params.userId],
+    );
+
+    const projectTitle = project.rows[0]?.title || 'dự án';
+    const removedName = removed.rows[0].full_name;
+    const link = `/du-an/${req.params.id}`;
+    const actorLabel = access.isAdmin ? 'Quản trị viên' : `Chủ dự án ${req.user.full_name}`;
+    await notifyAdmins(pool, {
+      type: 'collab',
+      content: `${actorLabel} đã mời cộng tác viên ${removedName} ra khỏi dự án “${projectTitle}”.`,
+      link,
+    });
+    await notifyBackers(pool, req.params.id, {
+      type: 'collab',
+      content: `${actorLabel} đã mời cộng tác viên ${removedName} ra khỏi dự án “${projectTitle}”.`,
+      link,
+      excludeUserId: req.params.userId,
+    });
+    await notify(pool, req.params.userId, {
+      type: 'collab',
+      content: `Bạn đã được mời ra khỏi dự án “${projectTitle}”.`,
+      link,
+    });
+    if (access.isAdmin && project.rows[0]?.owner_id) {
+      await notify(pool, project.rows[0].owner_id, {
+        type: 'collab',
+        content: `Quản trị viên đã mời cộng tác viên ${removedName} ra khỏi dự án “${projectTitle}”.`,
+        link: `/quan-ly/${req.params.id}`,
+      });
+    }
+
     res.status(204).end();
   }),
 );

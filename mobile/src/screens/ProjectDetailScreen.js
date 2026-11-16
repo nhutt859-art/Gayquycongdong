@@ -52,6 +52,12 @@ function CommentItem({ comment, replies, currentUser, onReply }) {
           </Text>
         </View>
         <Text style={{ fontWeight: '800', fontSize: 13 }}>{comment.user_name}</Text>
+        {comment.user_role === 'collaborator' ? (
+          <Badge label="Cộng tác viên" tone="indigo" style={{ marginLeft: 5 }} />
+        ) : null}
+        {comment.user_role === 'owner' ? (
+          <Badge label="Chủ dự án" tone="emerald" style={{ marginLeft: 5 }} />
+        ) : null}
         <Text style={{ fontSize: 10, color: colors.soft, marginLeft: 6 }}>{timeAgo(comment.created_at)}</Text>
       </View>
       <Text style={{ fontSize: 13, color: '#334155', marginTop: 5, lineHeight: 19 }}>{comment.content}</Text>
@@ -64,8 +70,16 @@ function CommentItem({ comment, replies, currentUser, onReply }) {
         <View style={{ borderLeftWidth: 2, borderLeftColor: colors.primarySoft, paddingLeft: 8, marginTop: 8 }}>
           {replies.map((reply) => (
             <View key={reply.id} style={{ backgroundColor: colors.slateSoft, borderRadius: 8, padding: 8, marginBottom: 5 }}>
-              <Text style={{ fontSize: 12, fontWeight: '800' }}>{reply.user_name}</Text>
-              <Text style={{ fontSize: 10, color: colors.soft }}>{timeAgo(reply.created_at)}</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+                <Text style={{ fontSize: 12, fontWeight: '800' }}>{reply.user_name}</Text>
+                {reply.user_role === 'collaborator' ? (
+                  <Badge label="Cộng tác viên" tone="indigo" style={{ marginLeft: 5 }} />
+                ) : null}
+                {reply.user_role === 'owner' ? (
+                  <Badge label="Chủ dự án" tone="emerald" style={{ marginLeft: 5 }} />
+                ) : null}
+                <Text style={{ fontSize: 10, color: colors.soft, marginLeft: 5 }}>{timeAgo(reply.created_at)}</Text>
+              </View>
               <Text style={{ fontSize: 12, color: '#334155', marginTop: 2 }}>{reply.content}</Text>
             </View>
           ))}
@@ -203,6 +217,7 @@ export default function ProjectDetailScreen({ navigation, route }) {
   if (!project) return null;
 
   const isOwner = project.my_role === 'owner';
+  const collaborators = (project.collaborators || []).filter((c) => c.accepted_at);
   const ended = daysLeft(project.end_date) === 'Đã kết thúc';
   let donateMessage = '';
   if (!currentUser) donateMessage = 'Đăng nhập để tài trợ dự án.';
@@ -341,16 +356,23 @@ export default function ProjectDetailScreen({ navigation, route }) {
               </Card>
             ))
           )}
-          {project.collaborators?.length > 0 ? (
-            <Card style={{ padding: 12, marginTop: 8 }}>
-              <Text style={{ fontWeight: '800', marginBottom: 6 }}>Đội ngũ cộng tác</Text>
-              {project.collaborators.map((c) => (
-                <Text key={`${c.user_id}-${c.role}`} style={{ fontSize: 12, color: colors.muted, marginBottom: 3 }}>
-                  • {c.full_name} — {c.role === 'editor' ? 'Biên tập' : c.role === 'viewer' ? 'Theo dõi' : c.role}
+          <Card style={{ padding: 12, marginTop: 8 }}>
+            <Text style={{ fontWeight: '800', marginBottom: 6 }}>Đội ngũ dự án</Text>
+            <View style={{ backgroundColor: colors.primaryPale, borderRadius: 8, padding: 8, marginBottom: 8 }}>
+              <Text style={{ fontSize: 10, color: colors.primaryDark }}>Chủ dự án</Text>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: colors.text }}>{project.owner_name}</Text>
+            </View>
+            <Text style={{ fontSize: 10, color: colors.muted }}>Cộng tác viên ({collaborators.length})</Text>
+            {collaborators.length === 0 ? (
+              <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>Chưa có cộng tác viên.</Text>
+            ) : (
+              collaborators.map((c) => (
+                <Text key={`${c.user_id}-${c.role}`} style={{ fontSize: 12, color: colors.muted, marginTop: 3 }}>
+                  • {c.full_name} — {c.role === 'editor' ? 'Biên tập' : c.role === 'moderator' ? 'Quản trị nội dung' : c.role}
                 </Text>
-              ))}
-            </Card>
-          ) : null}
+              ))
+            )}
+          </Card>
         </View>
       ) : null}
 

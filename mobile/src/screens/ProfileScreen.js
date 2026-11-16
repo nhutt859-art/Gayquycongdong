@@ -27,6 +27,7 @@ import {
   Screen,
   SectionHeader,
   StatTile,
+  confirmAction,
 } from '../components/ui';
 
 export default function ProfileScreen({ navigation }) {
@@ -132,10 +133,12 @@ export default function ProfileScreen({ navigation }) {
     }
   };
 
-  const doLogout = async () => {
-    await logout();
-    toast('Đã đăng xuất.', 'info');
-    navigation.navigate('MainTabs', { screen: 'HomeTab' });
+  const doLogout = () => {
+    confirmAction('Đăng xuất', 'Bạn có chắc chắn muốn đăng xuất?', async () => {
+      await logout();
+      toast('Đã đăng xuất.', 'info');
+      navigation.navigate('MainTabs', { screen: 'HomeTab' });
+    });
   };
 
   if (!currentUser) {

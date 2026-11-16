@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import {
@@ -20,6 +20,7 @@ import {
   formatDate,
   formatDateTime,
   pledgeStatusVi,
+  todayISO,
   transactionStatusVi,
   vnd,
 } from '../lib/format';
@@ -179,6 +180,7 @@ const MANAGE_TABS = [
 
 export function ManageProject() {
   const { id } = useParams();
+  const nav = useNavigate();
   const { categories, toast, refreshSession } = useApp();
   const [project, setProject] = useState(null);
   const [pledges, setPledges] = useState([]);
@@ -199,6 +201,7 @@ export function ManageProject() {
   const [closeOutcome, setCloseOutcome] = useState('successful');
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeBusy, setCloseBusy] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
 
   const load = useCallback(async () => {
@@ -260,6 +263,20 @@ export function ManageProject() {
     if (form.description.trim().length < 30) {
       setFormError('Mô tả tối thiểu 30 ký tự.');
       return;
+    }
+    if (isOwner) {
+      if (form.start_date < todayISO()) {
+        setFormError('Ngày bắt đầu không được ở quá khứ.');
+        return;
+      }
+      if (form.end_date < todayISO()) {
+        setFormError('Ngày kết thúc không được ở quá khứ.');
+        return;
+      }
+      if (form.end_date <= form.start_date) {
+        setFormError('Ngày kết thúc phải sau ngày bắt đầu.');
+        return;
+      }
     }
     setFormBusy(true);
     const payload = {
@@ -366,13 +383,28 @@ export function ManageProject() {
   };
 
   const removeCollaborator = async (userId) => {
-    if (!window.confirm('Xóa cộng tác viên này khỏi dự án?')) return;
+    if (!window.confirm('Mời cộng tác viên này ra khỏi dự án? Quản trị viên và nhà tài trợ sẽ được thông báo.')) return;
     try {
       await api.del(`/projects/${id}/collaborators/${userId}`);
       setProject((p) => ({ ...p, collaborators: p.collaborators.filter((c) => c.user_id !== userId) }));
-      toast('Đã xóa cộng tác viên.', 'success');
+      toast('Đã mời cộng tác viên ra khỏi dự án.', 'success');
     } catch (err) {
       toast(err.message, 'error');
+    }
+  };
+
+  const leaveProject = async () => {
+    if (!window.confirm('Bạn có chắc chắn muốn rời dự án này? Chủ dự án, quản trị viên và nhà tài trợ sẽ được thông báo.')) return;
+    setLeaveBusy(true);
+    try {
+      const data = await api.del(`/projects/${id}/collaborators/me`);
+      toast(data?.message || 'Đã rời dự án.', 'success');
+      await refreshSession();
+      nav('/du-an-cua-toi');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setLeaveBusy(false);
     }
   };
 
@@ -404,7 +436,7 @@ export function ManageProject() {
     }
   };
 
-  const canClose = isOwner && ['active', 'pending_review'].includes(project.status) || (isOwner && project.status === 'draft');
+  const canClose = isOwner && ['active', 'pending_review', 'draft'].includes(project.status);
   const preview = { ...project, ...form };
 
   return (
@@ -413,8 +445,17 @@ export function ManageProject() {
         title={project.title}
         subtitle={`${isOwner ? 'Chủ dự án' : 'Cộng tác viên'} · ${daysLeft(project.end_date)}`}
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link to={`/du-an/${project.id}`} className="btn-ghost text-sm">Xem công khai</Link>
+            {!isOwner && (
+              <button
+                className="btn-ghost border-red-300 text-sm text-red-700 disabled:opacity-60"
+                disabled={leaveBusy}
+                onClick={leaveProject}
+              >
+                {leaveBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang rời…</> : 'Rời dự án'}
+              </button>
+            )}
             <StatusBadge status={project.status} />
           </div>
         }
@@ -473,11 +514,11 @@ export function ManageProject() {
                     </div>
                     <div>
                       <label className="text-xs font-semibold">Ngày bắt đầu</label>
-                      <input type="date" className="input mt-1" value={form.start_date} onChange={setField('start_date')} />
+                      <input type="date" className="input mt-1" min={todayISO()} value={form.start_date} onChange={setField('start_date')} />
                     </div>
                     <div>
                       <label className="text-xs font-semibold">Ngày kết thúc</label>
-                      <input type="date" className="input mt-1" value={form.end_date} onChange={setField('end_date')} />
+                      <input type="date" className="input mt-1" min={form.start_date || todayISO()} value={form.end_date} onChange={setField('end_date')} />
                     </div>
                   </>
                 )}
@@ -573,7 +614,10 @@ export function ManageProject() {
               <h3 className="text-sm font-bold">Bình luận gần đây ({project.comments.length})</h3>
               {project.comments.slice(-5).reverse().map((c) => (
                 <div key={c.id} className="border-b py-1 text-sm last:border-0">
-                  <b>{c.user_name}:</b> {c.content}
+                  <b>{c.user_name}</b>
+                  {c.user_role === 'collaborator' && <span className="badge ml-1 bg-indigo-100 text-indigo-700">Cộng tác viên</span>}
+                  {c.user_role === 'owner' && <span className="badge ml-1 bg-emerald-100 text-emerald-700">Chủ dự án</span>}
+                  : {c.content}
                 </div>
               ))}
               <Link to={`/du-an/${project.id}`} className="link mt-2 inline-block text-xs">Trả lời trên trang dự án →</Link>
@@ -584,22 +628,31 @@ export function ManageProject() {
 
       {tab === 'goi' && (
         <div className="grid gap-4 md:grid-cols-3">
-          <form className="card space-y-3 p-5" onSubmit={addReward}>
-            <h2 className="font-bold">Thêm gói tri ân</h2>
-            <input className="input" placeholder="Tên gói" value={rewardForm.title} onChange={(e) => setRewardForm({ ...rewardForm, title: e.target.value })} />
-            <textarea className="input" rows="2" placeholder="Mô tả quà tặng" value={rewardForm.description} onChange={(e) => setRewardForm({ ...rewardForm, description: e.target.value })} />
-            <div>
-              <label className="text-xs font-semibold">Mức tối thiểu (đ)</label>
-              <input type="number" min="1000" step="1000" className="input mt-1" value={rewardForm.min_amount} onChange={(e) => setRewardForm({ ...rewardForm, min_amount: e.target.value })} />
+          {isOwner ? (
+            <form className="card space-y-3 p-5" onSubmit={addReward}>
+              <h2 className="font-bold">Thêm gói tri ân</h2>
+              <input className="input" placeholder="Tên gói" value={rewardForm.title} onChange={(e) => setRewardForm({ ...rewardForm, title: e.target.value })} />
+              <textarea className="input" rows="2" placeholder="Mô tả quà tặng" value={rewardForm.description} onChange={(e) => setRewardForm({ ...rewardForm, description: e.target.value })} />
+              <div>
+                <label className="text-xs font-semibold">Mức tối thiểu (đ)</label>
+                <input type="number" min="1000" step="1000" className="input mt-1" value={rewardForm.min_amount} onChange={(e) => setRewardForm({ ...rewardForm, min_amount: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold">Số suất</label>
+                <input type="number" min="0" className="input mt-1" value={rewardForm.quantity_available} onChange={(e) => setRewardForm({ ...rewardForm, quantity_available: e.target.value })} />
+              </div>
+              <button className="btn-primary w-full text-sm disabled:opacity-60" type="submit" disabled={rewardBusy}>
+                {rewardBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang thêm…</> : 'Thêm gói'}
+              </button>
+            </form>
+          ) : (
+            <div className="card space-y-2 p-5">
+              <h2 className="font-bold">Gói tri ân</h2>
+              <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
+                Chỉ chủ dự án được thêm, sửa hoặc xóa gói tri ân. Cộng tác viên vẫn có thể xem danh sách gói bên cạnh.
+              </p>
             </div>
-            <div>
-              <label className="text-xs font-semibold">Số suất</label>
-              <input type="number" min="0" className="input mt-1" value={rewardForm.quantity_available} onChange={(e) => setRewardForm({ ...rewardForm, quantity_available: e.target.value })} />
-            </div>
-            <button className="btn-primary w-full text-sm disabled:opacity-60" type="submit" disabled={rewardBusy}>
-              {rewardBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang thêm…</> : 'Thêm gói'}
-            </button>
-          </form>
+          )}
 
           <div className="card space-y-2 p-5 md:col-span-2">
             <h2 className="font-bold">Gói hiện tại ({project.rewards.length})</h2>
@@ -611,9 +664,11 @@ export function ManageProject() {
                   {r.description && <div className="text-xs text-slate-500">{r.description}</div>}
                   <div className="mt-1 text-xs text-slate-500">Tối thiểu {vnd(r.min_amount)} · đã nhận {r.quantity_claimed}/{r.quantity_available}</div>
                 </div>
-                <button className="text-xs text-red-500 hover:underline disabled:opacity-40" disabled={r.quantity_claimed > 0} title={r.quantity_claimed > 0 ? 'Không thể xóa gói đã có người nhận' : 'Xóa gói'} onClick={() => deleteReward(r)}>
-                  Xóa
-                </button>
+                {isOwner && (
+                  <button className="text-xs text-red-500 hover:underline disabled:opacity-40" disabled={r.quantity_claimed > 0} title={r.quantity_claimed > 0 ? 'Không thể xóa gói đã có người nhận' : 'Xóa gói'} onClick={() => deleteReward(r)}>
+                    Xóa
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -654,11 +709,27 @@ export function ManageProject() {
                   </div>
                 </div>
                 {isOwner && (
-                  <button className="text-xs text-red-500 hover:underline" onClick={() => removeCollaborator(c.user_id)}>Xóa</button>
+                  <button className="text-xs text-red-500 hover:underline" onClick={() => removeCollaborator(c.user_id)}>Mời ra</button>
                 )}
               </div>
             ))}
           </div>
+
+          {!isOwner && (
+            <div className="card border-red-200 p-5 md:col-span-3">
+              <h2 className="font-bold text-red-700">Rời dự án cộng tác</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Khi bạn rời dự án, chủ dự án, quản trị viên và toàn bộ nhà tài trợ sẽ nhận được thông báo.
+              </p>
+              <button
+                className="btn-ghost mt-2 border-red-300 text-sm text-red-700 disabled:opacity-60"
+                disabled={leaveBusy}
+                onClick={leaveProject}
+              >
+                {leaveBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang rời…</> : 'Rời dự án'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

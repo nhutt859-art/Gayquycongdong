@@ -175,7 +175,7 @@ export default function MyProjectsScreen({ navigation }) {
               <ProjectRow
                 key={p.id}
                 project={p}
-                role={p.collab_role === 'editor' ? 'Biên tập' : p.collab_role === 'viewer' ? 'Theo dõi' : p.collab_role}
+                role={p.collab_role === 'editor' ? 'Biên tập' : p.collab_role === 'moderator' ? 'Quản trị nội dung' : p.collab_role}
                 onOpen={() => navigation.navigate('ProjectDetail', { id: p.id })}
                 onManage={() => navigation.navigate('ManageProject', { id: p.id })}
               />

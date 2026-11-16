@@ -4,14 +4,45 @@ import { useApp } from '../context/AppContext';
 import { Spinner } from '../components/ui';
 import { clearPendingRegistration } from '../lib/pendingRegistration';
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 function AuthCard({ children }) {
   return <div className="mx-auto max-w-md space-y-4">{children}</div>;
 }
 
-// Quên mật khẩu — hỗ trợ nhận mã OTP qua email và nhập trực tiếp trên web
+function PasswordInput({ label, value, onChange, placeholder, autoComplete = 'new-password', autoFocus = false }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div>
+      <label className="text-sm font-semibold">{label}</label>
+      <div className="relative mt-1">
+        <input
+          className="input pr-16"
+          type={visible ? 'text' : 'password'}
+          placeholder={placeholder}
+          value={value}
+          onChange={onChange}
+          autoComplete={autoComplete}
+          required
+          autoFocus={autoFocus}
+        />
+        <button
+          type="button"
+          className="absolute inset-y-0 right-2 text-xs font-semibold text-emerald-700 hover:underline"
+          onClick={() => setVisible((current) => !current)}
+          aria-label={visible ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+        >
+          {visible ? 'Ẩn' : 'Hiện'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Quên mật khẩu — gửi mã OTP, xác nhận mã rồi mới chuyển sang giao diện đổi mật khẩu
 export function ForgotPassword() {
-  const { forgotPassword, resetPassword } = useApp();
-  const [step, setStep] = useState('request'); // 'request' | 'verify' | 'done'
+  const { forgotPassword, verifyResetCode, resetPassword } = useApp();
+  const [step, setStep] = useState('request'); // 'request' | 'verify' | 'password' | 'done'
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
@@ -20,6 +51,7 @@ export function ForgotPassword() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [devOtp, setDevOtp] = useState('');
+  const emailError = email.trim() && !EMAIL_RE.test(email.trim()) ? 'Email không hợp lệ.' : '';
 
   // Bước 1: Gửi mã OTP tới email
   const handleSendOtp = async (e) => {
@@ -29,6 +61,10 @@ export function ForgotPassword() {
     setDevOtp('');
     if (!email.trim()) {
       setError('Vui lòng nhập địa chỉ email.');
+      return;
+    }
+    if (!EMAIL_RE.test(email.trim())) {
+      setError('Email không hợp lệ.');
       return;
     }
     setBusy(true);
@@ -49,6 +85,9 @@ export function ForgotPassword() {
           'Nếu email tồn tại trong hệ thống, mã xác nhận (OTP) đã được gửi. Không nhận được sau 1–2 phút? Hãy kiểm tra mục Spam hoặc bấm “Gửi lại mã”.',
       );
       if (res.dev_otp) setDevOtp(res.dev_otp);
+      setOtp('');
+      setPassword('');
+      setConfirm('');
       setStep('verify');
     } catch (err) {
       setError(err.message);
@@ -57,14 +96,29 @@ export function ForgotPassword() {
     }
   };
 
-  // Bước 2: Nhập mã OTP và mật khẩu mới
-  const handleResetWithOtp = async (e) => {
+  // Bước 2: Kiểm tra mã OTP, sau đó chuyển sang giao diện đặt mật khẩu mới
+  const handleVerifyOtp = async (e) => {
     e?.preventDefault();
     setError('');
     if (!otp.trim()) {
       setError('Vui lòng nhập mã xác nhận (OTP).');
       return;
     }
+    setBusy(true);
+    try {
+      await verifyResetCode({ email, token: otp });
+      setStep('password');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Bước 3: Đặt mật khẩu mới sau khi mã đã được xác nhận
+  const handleResetPassword = async (e) => {
+    e?.preventDefault();
+    setError('');
     if (password.length < 8) {
       setError('Mật khẩu mới tối thiểu 8 ký tự.');
       return;
@@ -88,7 +142,7 @@ export function ForgotPassword() {
     <AuthCard>
       <div className="card space-y-4 p-6">
         {step === 'request' && (
-          <form className="space-y-4" onSubmit={handleSendOtp}>
+          <form className="space-y-4" onSubmit={handleSendOtp} noValidate>
             <div>
               <h1 className="text-xl font-bold">Quên mật khẩu</h1>
               <p className="mt-1 text-sm text-slate-600">
@@ -98,14 +152,16 @@ export function ForgotPassword() {
             <div>
               <label className="text-sm font-semibold">Email tài khoản</label>
               <input
-                className="input mt-1"
+                className={`input mt-1 ${emailError ? 'input-error' : ''}`}
                 type="email"
-                placeholder="ban@example.com"
+                placeholder="Nhập email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
+                aria-invalid={!!emailError}
                 required
               />
+              {emailError && <p className="mt-1 text-xs text-red-600">{emailError}</p>}
             </div>
             {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
             <button className="btn-primary w-full disabled:opacity-60" type="submit" disabled={busy}>
@@ -115,7 +171,7 @@ export function ForgotPassword() {
         )}
 
         {step === 'verify' && (
-          <form className="space-y-4" onSubmit={handleResetWithOtp}>
+          <form className="space-y-4" onSubmit={handleVerifyOtp}>
             <div>
               <h1 className="text-xl font-bold">Nhập mã xác nhận (OTP)</h1>
               <p className="mt-1 text-sm text-slate-600">
@@ -149,36 +205,10 @@ export function ForgotPassword() {
               />
             </div>
 
-            <div>
-              <label className="text-sm font-semibold">Mật khẩu mới</label>
-              <input
-                className="input mt-1"
-                type="password"
-                placeholder="Tối thiểu 8 ký tự"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold">Xác nhận mật khẩu mới</label>
-              <input
-                className="input mt-1"
-                type="password"
-                placeholder="Nhập lại mật khẩu mới"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                autoComplete="new-password"
-                required
-              />
-            </div>
-
             {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
             <button className="btn-primary w-full disabled:opacity-60" type="submit" disabled={busy}>
-              {busy ? <><Spinner className="mr-1 h-3 w-3" /> Đang lưu mật khẩu…</> : 'Xác nhận & Đặt lại mật khẩu'}
+              {busy ? <><Spinner className="mr-1 h-3 w-3" /> Đang kiểm tra mã…</> : 'Xác nhận mã'}
             </button>
 
             <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
@@ -196,12 +226,59 @@ export function ForgotPassword() {
                 onClick={() => {
                   setStep('request');
                   setOtp('');
-                  setPassword('');
-                  setConfirm('');
                   setError('');
                 }}
               >
                 Đổi email khác
+              </button>
+            </div>
+          </form>
+        )}
+
+        {step === 'password' && (
+          <form className="space-y-4" onSubmit={handleResetPassword}>
+            <div>
+              <h1 className="text-xl font-bold">Đặt mật khẩu mới</h1>
+              <p className="mt-1 text-sm text-slate-600">
+                Mã xác nhận đã đúng cho <b>{email}</b>. Hãy chọn mật khẩu mới cho tài khoản của bạn.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+              Xác nhận mã OTP thành công. Bạn có thể đặt mật khẩu mới ngay bây giờ.
+            </div>
+
+            <PasswordInput
+              label="Mật khẩu mới"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Tối thiểu 8 ký tự"
+              autoFocus
+            />
+
+            <PasswordInput
+              label="Xác nhận mật khẩu mới"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="Nhập lại mật khẩu mới"
+            />
+
+            {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+
+            <button className="btn-primary w-full disabled:opacity-60" type="submit" disabled={busy}>
+              {busy ? <><Spinner className="mr-1 h-3 w-3" /> Đang lưu mật khẩu…</> : 'Đặt lại mật khẩu'}
+            </button>
+
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                className="link text-xs"
+                onClick={() => {
+                  setStep('verify');
+                  setError('');
+                }}
+              >
+                ← Nhập lại mã xác nhận
               </button>
             </div>
           </form>
@@ -244,6 +321,7 @@ export function ResetPassword() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const emailError = email.trim() && !EMAIL_RE.test(email.trim()) ? 'Email không hợp lệ.' : '';
 
   useEffect(() => {
     if (tokenParam) setToken(tokenParam);
@@ -253,6 +331,10 @@ export function ResetPassword() {
   const submit = async (e) => {
     e.preventDefault();
     setError('');
+    if (!email.trim() || !EMAIL_RE.test(email.trim())) {
+      setError('Email không hợp lệ.');
+      return;
+    }
     if (!token.trim()) {
       setError('Vui lòng nhập mã xác nhận (OTP).');
       return;
@@ -291,19 +373,21 @@ export function ResetPassword() {
             </Link>
           </div>
         ) : (
-          <form className="space-y-3" onSubmit={submit}>
+          <form className="space-y-3" onSubmit={submit} noValidate>
             <p className="text-sm text-slate-600">Nhập mã xác nhận (OTP) và chọn mật khẩu mới.</p>
 
             <div>
               <label className="text-sm font-semibold">Email tài khoản</label>
               <input
-                className="input mt-1"
+                className={`input mt-1 ${emailError ? 'input-error' : ''}`}
                 type="email"
-                placeholder="ban@example.com"
+                placeholder="Nhập email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
+                aria-invalid={!!emailError}
               />
+              {emailError && <p className="mt-1 text-xs text-red-600">{emailError}</p>}
             </div>
 
             <div>
@@ -318,31 +402,19 @@ export function ResetPassword() {
               />
             </div>
 
-            <div>
-              <label className="text-sm font-semibold">Mật khẩu mới</label>
-              <input
-                className="input mt-1"
-                type="password"
-                placeholder="Tối thiểu 8 ký tự"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                required
-              />
-            </div>
+            <PasswordInput
+              label="Mật khẩu mới"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Tối thiểu 8 ký tự"
+            />
 
-            <div>
-              <label className="text-sm font-semibold">Nhập lại mật khẩu</label>
-              <input
-                className="input mt-1"
-                type="password"
-                placeholder="Nhập lại mật khẩu mới"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                autoComplete="new-password"
-                required
-              />
-            </div>
+            <PasswordInput
+              label="Nhập lại mật khẩu"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="Nhập lại mật khẩu mới"
+            />
 
             {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 

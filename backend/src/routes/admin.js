@@ -99,10 +99,25 @@ router.get(
     }
     const { rows } = await query(
       `select p.*, c.name as category_name, u.full_name as owner_name,
-              u.email as owner_email,
+              u.email as owner_email, u.phone as owner_phone,
+              u.kyc_status as owner_kyc_status, u.trust_score as owner_trust_score,
+              u.status as owner_status,
               (select count(*) from rewards r where r.project_id = p.id)::int as reward_count,
               (select count(*) from pledges pl where pl.project_id = p.id and pl.status = 'paid')::int as backer_count,
-              (select count(*) from pledges pl where pl.project_id = p.id and pl.status = 'paid')::int as paid_backers
+              (select count(*) from pledges pl where pl.project_id = p.id and pl.status = 'paid')::int as paid_backers,
+              coalesce((
+                select json_agg(json_build_object(
+                  'user_id', pc.user_id,
+                  'full_name', cu.full_name,
+                  'email', cu.email,
+                  'role', pc.role,
+                  'invited_at', pc.invited_at,
+                  'accepted_at', pc.accepted_at
+                ) order by pc.invited_at)
+                  from project_collaborators pc
+                  join users cu on cu.id = pc.user_id
+                 where pc.project_id = p.id
+              ), '[]'::json) as collaborators
          from projects p
          join categories c on c.id = p.category_id
          join users u on u.id = p.owner_id
@@ -110,7 +125,12 @@ router.get(
         order by p.created_at desc`,
       params,
     );
-    res.json({ items: rows.map(mapProject) });
+    res.json({
+      items: rows.map((row) => ({
+        ...mapProject(row),
+        owner_trust_score: Number(row.owner_trust_score || 0),
+      })),
+    });
   }),
 );
 
@@ -387,6 +407,7 @@ router.get(
       select u.id, u.full_name, u.email, u.phone, u.role, u.kyc_status, u.trust_score,
              u.status, u.email_verified_at, u.created_at,
              (select count(*) from projects p where p.owner_id = u.id)::int as owned_projects,
+             (select count(*) from project_collaborators pc where pc.user_id = u.id and pc.accepted_at is not null)::int as collaborating_projects,
              (select count(*) from pledges pl where pl.backer_id = u.id and pl.status = 'paid')::int as paid_pledges
         from users u
        order by u.created_at

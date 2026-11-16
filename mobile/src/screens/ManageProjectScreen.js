@@ -8,6 +8,7 @@ import {
   formatDate,
   formatDateTime,
   pledgeStatusVi,
+  todayISO,
   transactionStatusVi,
   vnd,
 } from '../lib/format';
@@ -37,6 +38,8 @@ const TABS = [
   ['finance', 'Tài chính'],
 ];
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export default function ManageProjectScreen({ navigation, route }) {
   const { id } = route.params;
   const { categories, toast, refreshSession } = useApp();
@@ -58,6 +61,7 @@ export default function ManageProjectScreen({ navigation, route }) {
   const [payoutBusy, setPayoutBusy] = useState(false);
   const [closeOutcome, setCloseOutcome] = useState('successful');
   const [closeBusy, setCloseBusy] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
   const isOwner = project?.my_role === 'owner';
 
   const load = useCallback(async () => {
@@ -101,6 +105,24 @@ export default function ManageProjectScreen({ navigation, route }) {
     if (form.description.trim().length < 30) {
       setFormError('Mô tả tối thiểu 30 ký tự.');
       return;
+    }
+    if (isOwner) {
+      if (!DATE_RE.test(form.start_date) || !DATE_RE.test(form.end_date)) {
+        setFormError('Ngày phải có dạng YYYY-MM-DD.');
+        return;
+      }
+      if (form.start_date < todayISO()) {
+        setFormError('Ngày bắt đầu không được ở quá khứ.');
+        return;
+      }
+      if (form.end_date < todayISO()) {
+        setFormError('Ngày kết thúc không được ở quá khứ.');
+        return;
+      }
+      if (form.end_date <= form.start_date) {
+        setFormError('Ngày kết thúc phải sau ngày bắt đầu.');
+        return;
+      }
     }
     setFormBusy(true);
     setFormError('');
@@ -206,15 +228,39 @@ export default function ManageProjectScreen({ navigation, route }) {
   };
 
   const removeCollaborator = (userId) => {
-    confirmAction('Xóa cộng tác viên?', 'Người này sẽ không còn quyền quản lý dự án.', async () => {
-      try {
-        await api.del(`/projects/${id}/collaborators/${userId}`);
-        setProject((p) => ({ ...p, collaborators: p.collaborators.filter((c) => c.user_id !== userId) }));
-        toast('Đã xóa cộng tác viên.', 'success');
-      } catch (err) {
-        toast(err.message, 'error');
-      }
-    });
+    confirmAction(
+      'Mời cộng tác viên ra?',
+      'Cộng tác viên này sẽ không còn quyền quản lý dự án. Quản trị viên và nhà tài trợ sẽ được thông báo.',
+      async () => {
+        try {
+          await api.del(`/projects/${id}/collaborators/${userId}`);
+          setProject((p) => ({ ...p, collaborators: p.collaborators.filter((c) => c.user_id !== userId) }));
+          toast('Đã mời cộng tác viên ra khỏi dự án.', 'success');
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      },
+    );
+  };
+
+  const leaveProject = () => {
+    confirmAction(
+      'Rời dự án?',
+      'Bạn có chắc chắn muốn rời dự án này? Chủ dự án, quản trị viên và nhà tài trợ sẽ được thông báo.',
+      async () => {
+        setLeaveBusy(true);
+        try {
+          const data = await api.del(`/projects/${id}/collaborators/me`);
+          toast(data?.message || 'Đã rời dự án.', 'success');
+          await refreshSession();
+          navigation.navigate('MyProjects');
+        } catch (err) {
+          toast(err.message, 'error');
+        } finally {
+          setLeaveBusy(false);
+        }
+      },
+    );
   };
 
   const requestPayout = async () => {
@@ -449,32 +495,41 @@ export default function ManageProjectScreen({ navigation, route }) {
 
       {tab === 'rewards' ? (
         <View>
-          <Card style={{ padding: 14 }}>
-            <SectionHeader title="Thêm gói tri ân" />
-            <Input label="Tên gói" value={rewardForm.title} onChangeText={(v) => setRewardForm((f) => ({ ...f, title: v }))} />
-            <Input
-              label="Mô tả"
-              value={rewardForm.description}
-              onChangeText={(v) => setRewardForm((f) => ({ ...f, description: v }))}
-            />
-            <View style={{ flexDirection: 'row' }}>
+          {isOwner ? (
+            <Card style={{ padding: 14 }}>
+              <SectionHeader title="Thêm gói tri ân" />
+              <Input label="Tên gói" value={rewardForm.title} onChangeText={(v) => setRewardForm((f) => ({ ...f, title: v }))} />
               <Input
-                label="Tối thiểu (đ)"
-                value={rewardForm.min_amount}
-                onChangeText={(v) => setRewardForm((f) => ({ ...f, min_amount: v.replace(/[^0-9]/g, '') }))}
-                keyboardType="number-pad"
-                style={{ flex: 1, marginRight: 6 }}
+                label="Mô tả"
+                value={rewardForm.description}
+                onChangeText={(v) => setRewardForm((f) => ({ ...f, description: v }))}
               />
-              <Input
-                label="Số suất"
-                value={rewardForm.quantity_available}
-                onChangeText={(v) => setRewardForm((f) => ({ ...f, quantity_available: v.replace(/[^0-9]/g, '') }))}
-                keyboardType="number-pad"
-                style={{ flex: 1 }}
-              />
-            </View>
-            <Button title="Thêm gói" onPress={addReward} loading={rewardBusy} />
-          </Card>
+              <View style={{ flexDirection: 'row' }}>
+                <Input
+                  label="Tối thiểu (đ)"
+                  value={rewardForm.min_amount}
+                  onChangeText={(v) => setRewardForm((f) => ({ ...f, min_amount: v.replace(/[^0-9]/g, '') }))}
+                  keyboardType="number-pad"
+                  style={{ flex: 1, marginRight: 6 }}
+                />
+                <Input
+                  label="Số suất"
+                  value={rewardForm.quantity_available}
+                  onChangeText={(v) => setRewardForm((f) => ({ ...f, quantity_available: v.replace(/[^0-9]/g, '') }))}
+                  keyboardType="number-pad"
+                  style={{ flex: 1 }}
+                />
+              </View>
+              <Button title="Thêm gói" onPress={addReward} loading={rewardBusy} />
+            </Card>
+          ) : (
+            <Card style={{ padding: 14 }}>
+              <SectionHeader title="Gói tri ân" />
+              <Text style={{ fontSize: 11, color: colors.amber, lineHeight: 17 }}>
+                Chỉ chủ dự án được thêm, sửa hoặc xóa gói tri ân. Cộng tác viên vẫn có thể xem danh sách gói bên dưới.
+              </Text>
+            </Card>
+          )}
           <SectionHeader title="Gói hiện có" subtitle={`${project.rewards?.length || 0} gói`} />
           {(project.rewards || []).map((r) => (
             <Card key={r.id} style={{ padding: 12, marginBottom: 8 }}>
@@ -486,9 +541,11 @@ export default function ManageProjectScreen({ navigation, route }) {
                   </Text>
                   {r.description ? <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>{r.description}</Text> : null}
                 </View>
-                <Pressable onPress={() => deleteReward(r)} hitSlop={8}>
-                  <Ionicons name="trash-outline" size={18} color={colors.red} />
-                </Pressable>
+                {isOwner ? (
+                  <Pressable onPress={() => deleteReward(r)} hitSlop={8}>
+                    <Ionicons name="trash-outline" size={18} color={colors.red} />
+                  </Pressable>
+                ) : null}
               </View>
             </Card>
           ))}
@@ -511,7 +568,7 @@ export default function ManageProjectScreen({ navigation, route }) {
               <View style={{ flexDirection: 'row', marginBottom: 10 }}>
                 {[
                   ['editor', 'Biên tập'],
-                  ['viewer', 'Theo dõi'],
+                  ['moderator', 'Quản trị nội dung'],
                 ].map(([key, label]) => (
                   <Pressable
                     key={key}
@@ -541,7 +598,9 @@ export default function ManageProjectScreen({ navigation, route }) {
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontWeight: '800', fontSize: 13 }}>{c.full_name}</Text>
-                  <Text style={{ fontSize: 10, color: colors.muted }}>{c.email} · {c.role}</Text>
+                  <Text style={{ fontSize: 10, color: colors.muted }}>
+                    {c.email} · {c.role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'}
+                  </Text>
                   <Text style={{ fontSize: 10, color: c.accepted_at ? colors.primary : colors.amber, marginTop: 2 }}>
                     {c.accepted_at ? 'Đã chấp nhận' : 'Đang chờ chấp nhận'}
                   </Text>
@@ -554,6 +613,23 @@ export default function ManageProjectScreen({ navigation, route }) {
               </View>
             </Card>
           ))}
+
+          {!isOwner ? (
+            <Card style={{ padding: 14, marginTop: 8, borderColor: '#fecaca' }}>
+              <Text style={{ fontWeight: '800', fontSize: 14, color: colors.red }}>Rời dự án cộng tác</Text>
+              <Text style={{ fontSize: 11, color: colors.muted, marginTop: 4, lineHeight: 17 }}>
+                Khi bạn rời dự án, chủ dự án, quản trị viên và toàn bộ nhà tài trợ sẽ nhận được thông báo.
+              </Text>
+              <Button
+                title="Rời dự án"
+                variant="danger"
+                icon="exit-outline"
+                loading={leaveBusy}
+                onPress={leaveProject}
+                style={{ marginTop: 10 }}
+              />
+            </Card>
+          ) : null}
         </View>
       ) : null}
 

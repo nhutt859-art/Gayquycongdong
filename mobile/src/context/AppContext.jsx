@@ -146,6 +146,16 @@ export function AppProvider({ children }) {
     [],
   );
 
+  const verifyResetCode = useCallback(
+    async ({ email, token }) =>
+      api.post(
+        '/auth/verify-reset-code',
+        { email: String(email).trim(), token: String(token).trim() },
+        { auth: false },
+      ),
+    [],
+  );
+
   const resetPassword = useCallback(
     async ({ email, token, password }) =>
       api.post(
@@ -247,6 +257,7 @@ export function AppProvider({ children }) {
       login,
       register,
       forgotPassword,
+      verifyResetCode,
       resetPassword,
       verifyEmail,
       resendVerification,
@@ -277,6 +288,7 @@ export function AppProvider({ children }) {
       login,
       register,
       forgotPassword,
+      verifyResetCode,
       resetPassword,
       verifyEmail,
       resendVerification,

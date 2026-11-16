@@ -41,8 +41,8 @@ Không dùng `localhost` trên điện thoại thật vì điện thoại không
 - **Khám phá**: tìm kiếm, lọc danh mục/trạng thái, sắp xếp, phân trang
 - **Chi tiết dự án**: câu chuyện, bản tin, bình luận/trả lời, gói tri ân, dự đoán AI có giải thích, điểm rủi ro gian lận
 - **Tài trợ**: chọn số tiền/gói, ẩn danh, phương thức thanh toán mô phỏng, kiểm tra rủi ro
-- **Đăng nhập / Đăng ký**: mật khẩu tối thiểu 8 ký tự, phản hồi đăng ký trung tính
-- **Quên mật khẩu**: gửi OTP qua email, đặt lại mật khẩu
+- **Đăng nhập / Đăng ký**: mật khẩu tối thiểu 8 ký tự, đăng ký báo thành công hoặc email đã tồn tại
+- **Quên mật khẩu**: gửi OTP qua email, xác nhận mã rồi chuyển sang màn hình đặt mật khẩu mới
 - **Chọn chủ đề**: lưu sở thích để AI cá nhân hoá gợi ý
 - **Cá nhân**: hồ sơ, KYC mô phỏng, lịch sử tài trợ/giao dịch, quản lý sở thích
 - **Thông báo**: lọc chưa đọc, đánh dấu đã đọc, xoá

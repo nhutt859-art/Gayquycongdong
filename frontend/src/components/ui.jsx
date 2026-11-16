@@ -210,6 +210,8 @@ export function Layout({ children }) {
   const nav = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
 
   useEffect(() => {
     setOpen(false);
@@ -219,8 +221,14 @@ export function Layout({ children }) {
     `hover:text-emerald-700 ${location.pathname === to ? 'text-emerald-700' : ''}`;
 
   const handleLogout = async () => {
-    await logout();
-    nav('/');
+    setLogoutBusy(true);
+    try {
+      await logout();
+      setLogoutOpen(false);
+      nav('/');
+    } finally {
+      setLogoutBusy(false);
+    }
   };
 
   return (
@@ -262,7 +270,7 @@ export function Layout({ children }) {
               </Link>
             )}
             {currentUser ? (
-              <button onClick={handleLogout} className="btn-ghost text-sm">Đăng xuất</button>
+              <button onClick={() => setLogoutOpen(true)} className="btn-ghost text-sm">Đăng xuất</button>
             ) : (
               <button onClick={() => nav('/dang-nhap')} className="btn-primary text-sm">Đăng nhập</button>
             )}
@@ -273,6 +281,21 @@ export function Layout({ children }) {
       <footer className="py-8 text-center text-xs text-slate-500">
         GâyQuỹ+ — Nền tảng gây quỹ cộng đồng minh bạch + AI. Thanh toán trong đồ án là mô phỏng.
       </footer>
+      <Modal
+        open={logoutOpen}
+        title="Xác nhận đăng xuất"
+        onClose={() => setLogoutOpen(false)}
+        footer={
+          <>
+            <button className="btn-ghost text-sm" onClick={() => setLogoutOpen(false)}>Hủy</button>
+            <button className="btn-primary text-sm disabled:opacity-60" disabled={logoutBusy} onClick={handleLogout}>
+              {logoutBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang đăng xuất…</> : 'Xác nhận'}
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">Bạn có chắc chắn muốn đăng xuất?</p>
+      </Modal>
       <ToastStack />
     </div>
   );

@@ -30,6 +30,12 @@ function CommentItem({ comment, replies, currentUser, onReply }) {
           {comment.user_name?.charAt(0)?.toUpperCase() || '?'}
         </span>
         <b>{comment.user_name}</b>
+        {comment.user_role === 'collaborator' && (
+          <span className="badge bg-indigo-100 text-indigo-700">Cộng tác viên</span>
+        )}
+        {comment.user_role === 'owner' && (
+          <span className="badge bg-emerald-100 text-emerald-700">Chủ dự án</span>
+        )}
         <span className="text-xs text-slate-400">{timeAgo(comment.created_at)}</span>
       </div>
       <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{comment.content}</p>
@@ -44,6 +50,12 @@ function CommentItem({ comment, replies, currentUser, onReply }) {
             <div key={reply.id} className="rounded-lg bg-slate-50 p-2">
               <div className="flex flex-wrap items-center gap-1 text-xs">
                 <b className="text-sm">{reply.user_name}</b>
+                {reply.user_role === 'collaborator' && (
+                  <span className="badge bg-indigo-100 text-indigo-700">Cộng tác viên</span>
+                )}
+                {reply.user_role === 'owner' && (
+                  <span className="badge bg-emerald-100 text-emerald-700">Chủ dự án</span>
+                )}
                 <span className="text-slate-400">· {timeAgo(reply.created_at)}</span>
               </div>
               <p className="mt-0.5 whitespace-pre-line text-sm text-slate-700">{reply.content}</p>
@@ -185,6 +197,7 @@ export default function ProjectDetail() {
   const isOwner = project.my_role === 'owner';
   const canDonate = project.can_pledge;
   const ended = daysLeft(project.end_date) === 'Đã kết thúc';
+  const collaborators = (project.collaborators || []).filter((c) => c.accepted_at);
   const donateTarget = `/tai-tro/${project.id}`;
 
   let donateMessage = '';
@@ -415,6 +428,28 @@ export default function ProjectDetail() {
               </div>
             )}
             <div className="text-xs text-slate-500">Thanh toán mô phỏng · Không phát sinh giao dịch thật.</div>
+          </div>
+
+          <div className="card space-y-2 p-5">
+            <h3 className="font-bold">Đội ngũ dự án</h3>
+            <div className="rounded-xl bg-emerald-50 p-3 text-sm">
+              <div className="text-xs text-emerald-700">Chủ dự án</div>
+              <b className="text-slate-800">{project.owner_name}</b>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Cộng tác viên ({collaborators.length})</div>
+              {collaborators.length === 0 ? (
+                <p className="mt-1 text-sm text-slate-500">Chưa có cộng tác viên.</p>
+              ) : (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {collaborators.map((c) => (
+                    <span key={c.user_id} className="badge bg-indigo-100 text-indigo-700">
+                      {c.full_name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="card space-y-2 p-5">

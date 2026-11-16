@@ -99,8 +99,9 @@ export default function CreateProject() {
   const validateStep2 = () => {
     if (Number(form.goal_amount) < 100000) return 'Mục tiêu tối thiểu 100.000đ.';
     if (!form.start_date || !form.end_date) return 'Vui lòng chọn ngày bắt đầu và kết thúc.';
+    if (form.start_date < todayISO()) return 'Ngày bắt đầu không được ở quá khứ.';
+    if (form.end_date < todayISO()) return 'Ngày kết thúc không được ở quá khứ.';
     if (form.end_date <= form.start_date) return 'Ngày kết thúc phải sau ngày bắt đầu.';
-    if (form.end_date < todayISO()) return 'Ngày kết thúc phải ở tương lai.';
     for (const [index, reward] of filledRewards.entries()) {
       if (reward.title.trim().length < 3) return `Gói tri ân #${index + 1}: tên gói tối thiểu 3 ký tự.`;
       if (Number(reward.min_amount) <= 0) return `Gói tri ân #${index + 1}: mức tối thiểu phải lớn hơn 0.`;

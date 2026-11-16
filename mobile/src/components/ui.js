@@ -132,22 +132,40 @@ export function Input({
   style,
   inputStyle,
   multiline = false,
+  secureTextEntry = false,
   ...props
 }) {
+  const [hidden, setHidden] = useState(secureTextEntry);
+
   return (
     <View style={[{ marginBottom: 12 }, style]}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      <TextInput
-        placeholderTextColor={colors.soft}
-        multiline={multiline}
-        style={[
-          styles.input,
-          multiline && { minHeight: 96, textAlignVertical: 'top', paddingTop: 12 },
-          error && { borderColor: colors.red },
-          inputStyle,
-        ]}
-        {...props}
-      />
+      <View style={{ position: 'relative', justifyContent: 'center' }}>
+        <TextInput
+          placeholderTextColor={colors.soft}
+          multiline={multiline}
+          secureTextEntry={secureTextEntry && hidden}
+          style={[
+            styles.input,
+            secureTextEntry && { paddingRight: 44 },
+            multiline && { minHeight: 96, textAlignVertical: 'top', paddingTop: 12 },
+            error && { borderColor: colors.red },
+            inputStyle,
+          ]}
+          {...props}
+        />
+        {secureTextEntry ? (
+          <Pressable
+            onPress={() => setHidden((value) => !value)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={hidden ? 'Hiện mật khẩu' : 'Ẩn mật khẩu'}
+            style={{ position: 'absolute', right: 12, top: 0, bottom: 0, justifyContent: 'center' }}
+          >
+            <Ionicons name={hidden ? 'eye-outline' : 'eye-off-outline'} size={19} color={colors.muted} />
+          </Pressable>
+        ) : null}
+      </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       {hint && !error ? <Text style={styles.hintText}>{hint}</Text> : null}
     </View>

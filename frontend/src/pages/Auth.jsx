@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { Spinner } from '../components/ui';
+import { Modal, Spinner } from '../components/ui';
 import { kycVi, roleVi } from '../lib/format';
 import {
   clearPendingRegistration,
@@ -47,6 +47,9 @@ export function Auth() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState({ fullName: false, email: false, password: false });
@@ -100,7 +103,7 @@ export function Auth() {
         nav(targetAfterLogin(user, from), { replace: true });
       } else {
         const result = await register({ full_name: fullName, email, password });
-        // Backend trả phản hồi trung tính; dùng email người dùng vừa nhập để hiển thị.
+        // Backend kiểm tra email tồn tại trước khi tạo; thành công nghĩa là tài khoản mới đã được tạo.
         setPending(savePendingRegistration({ ...result, full_name: fullName, email }));
         setPassword('');
         setSubmitted(false);
@@ -120,35 +123,65 @@ export function Auth() {
 
   if (currentUser) {
     return (
-      <div className="mx-auto max-w-md space-y-3">
-        <div className="card p-6 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-700">
-            {currentUser.full_name?.charAt(0)?.toUpperCase() || '?'}
+      <>
+        <div className="mx-auto max-w-md space-y-3">
+          <div className="card p-6 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-700">
+              {currentUser.full_name?.charAt(0)?.toUpperCase() || '?'}
+            </div>
+            <h1 className="mt-3 text-xl font-bold">Xin chào, {currentUser.full_name}</h1>
+            <p className="text-sm text-slate-600">{currentUser.email}</p>
+            <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+              <span className="badge bg-slate-100">{roleVi[currentUser.role] || currentUser.role}</span>
+              <span className={`badge ${currentUser.kyc_status === 'verified' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                {kycVi[currentUser.kyc_status]}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-2">
+              {currentUser.role === 'admin' ? (
+                <Link to="/admin" className="btn-primary text-sm">Vào trang quản trị</Link>
+              ) : (
+                <>
+                  <Link to="/du-an-cua-toi" className="btn-primary text-sm">Dự án của tôi</Link>
+                  <Link to="/tao-du-an" className="btn-ghost text-sm">Tạo dự án mới</Link>
+                </>
+              )}
+              <Link to="/ca-nhan" className="btn-ghost text-sm">Hồ sơ cá nhân</Link>
+            </div>
+            <button className="link mt-3 text-sm" onClick={() => setLogoutOpen(true)}>
+              Đăng xuất
+            </button>
           </div>
-          <h1 className="mt-3 text-xl font-bold">Xin chào, {currentUser.full_name}</h1>
-          <p className="text-sm text-slate-600">{currentUser.email}</p>
-          <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-            <span className="badge bg-slate-100">{roleVi[currentUser.role] || currentUser.role}</span>
-            <span className={`badge ${currentUser.kyc_status === 'verified' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-              {kycVi[currentUser.kyc_status]}
-            </span>
-          </div>
-          <div className="mt-4 grid gap-2">
-            {currentUser.role === 'admin' ? (
-              <Link to="/admin" className="btn-primary text-sm">Vào trang quản trị</Link>
-            ) : (
-              <>
-                <Link to="/du-an-cua-toi" className="btn-primary text-sm">Dự án của tôi</Link>
-                <Link to="/tao-du-an" className="btn-ghost text-sm">Tạo dự án mới</Link>
-              </>
-            )}
-            <Link to="/ca-nhan" className="btn-ghost text-sm">Hồ sơ cá nhân</Link>
-          </div>
-          <button className="link mt-3 text-sm" onClick={async () => { await logout(); nav('/'); }}>
-            Đăng xuất
-          </button>
         </div>
-      </div>
+        <Modal
+          open={logoutOpen}
+          title="Xác nhận đăng xuất"
+          onClose={() => setLogoutOpen(false)}
+          footer={
+            <>
+              <button className="btn-ghost text-sm" onClick={() => setLogoutOpen(false)}>Hủy</button>
+              <button
+                className="btn-primary text-sm disabled:opacity-60"
+                disabled={logoutBusy}
+                onClick={async () => {
+                  setLogoutBusy(true);
+                  try {
+                    await logout();
+                    setLogoutOpen(false);
+                    nav('/');
+                  } finally {
+                    setLogoutBusy(false);
+                  }
+                }}
+              >
+                {logoutBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang đăng xuất…</> : 'Xác nhận'}
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-slate-600">Bạn có chắc chắn muốn đăng xuất?</p>
+        </Modal>
+      </>
     );
   }
 
@@ -156,10 +189,10 @@ export function Auth() {
     return (
       <div className="mx-auto max-w-md space-y-4">
         <div className="card space-y-3 p-6">
-          <div className="text-3xl">📬</div>
-          <h1 className="text-xl font-bold">Kiểm tra email của bạn</h1>
+          <div className="text-3xl">🎉</div>
+          <h1 className="text-xl font-bold">Đăng ký thành công</h1>
           <p className="text-sm text-slate-600">
-            Chúng tôi đã gửi hướng dẫn tiếp theo tới <b>{pending.user?.email}</b>. Nếu đây là email mới, hãy bấm liên kết xác thực để kích hoạt tài khoản. Nếu email đã có tài khoản, bạn sẽ nhận hướng dẫn đăng nhập hoặc đặt lại mật khẩu.
+            Tài khoản với email <b>{pending.user?.email}</b> đã được tạo. Chúng tôi đã gửi liên kết xác thực tới email này. Hãy mở hộp thư (cả mục Spam), bấm liên kết xác thực để kích hoạt tài khoản rồi đăng nhập.
           </p>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
             Bạn có thể tải lại trang — thông tin đăng ký vẫn được giữ lại.
@@ -246,7 +279,7 @@ export function Auth() {
             className={`input mt-1 ${showError('email') ? 'input-error' : ''}`}
             type="email"
             inputMode="email"
-            placeholder="ban@example.com"
+            placeholder="Nhập email"
             value={email}
             onChange={(e) => {
               setEmail(e.target.value);
@@ -266,20 +299,30 @@ export function Auth() {
               <Link to="/quen-mat-khau" className="link text-xs">Quên mật khẩu?</Link>
             )}
           </div>
-          <input
-            id="password"
-            className={`input mt-1 ${showError('password') ? 'input-error' : ''}`}
-            type="password"
-            placeholder={mode === 'register' ? 'Tối thiểu 8 ký tự' : 'Nhập mật khẩu'}
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              touch('password');
-            }}
-            onBlur={() => touch('password')}
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            aria-invalid={!!showError('password')}
-          />
+          <div className="relative mt-1">
+            <input
+              id="password"
+              className={`input pr-16 ${showError('password') ? 'input-error' : ''}`}
+              type={showPassword ? 'text' : 'password'}
+              placeholder={mode === 'register' ? 'Tối thiểu 8 ký tự' : 'Nhập mật khẩu'}
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                touch('password');
+              }}
+              onBlur={() => touch('password')}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              aria-invalid={!!showError('password')}
+            />
+            <button
+              type="button"
+              className="absolute inset-y-0 right-2 text-xs font-semibold text-emerald-700 hover:underline"
+              onClick={() => setShowPassword((value) => !value)}
+              aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+            >
+              {showPassword ? 'Ẩn' : 'Hiện'}
+            </button>
+          </div>
           {showError('password') && <p className="mt-1 text-xs text-red-600">{errors.password}</p>}
         </div>
 

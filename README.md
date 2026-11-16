@@ -252,7 +252,7 @@ GitHub Actions workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) c
 - Email xác thực / đặt lại mật khẩu dùng Brevo/Resend/SendGrid HTTP API hoặc SMTP (Nodemailer). Khi chưa cấu hình email trong `backend/.env`, nội dung được in ra console backend để test.
 - **Deploy Render free:** Render chặn outbound SMTP 25/465/587, nên đặt `BREVO_API_KEY` + `MAIL_FROM` trong Render → Environment (xem `backend/README.md`).
 - JWT lưu `localStorage`; logout xoá token phía client. Đặt lại mật khẩu sẽ tăng `token_version` và vô hiệu hoá mọi JWT cũ.
-- Các endpoint đăng ký/đăng nhập/quên mật khẩu có giới hạn tần suất theo IP và email; phản hồi đăng ký, quên mật khẩu, gửi lại xác thực không tiết lộ email có tồn tại hay không. Mật khẩu tối thiểu 8 ký tự.
+- Các endpoint đăng ký/đăng nhập/quên mật khẩu có giới hạn tần suất theo IP và email; đăng ký báo rõ email đã tồn tại hay chưa, còn quên mật khẩu/gửi lại xác thực không tiết lộ email có tồn tại hay không. Mật khẩu tối thiểu 8 ký tự.
 - Không commit `backend/.env`.
 - Nếu dùng OneDrive, nên tạm dừng sync khi `npm install` để tránh lock file.
 

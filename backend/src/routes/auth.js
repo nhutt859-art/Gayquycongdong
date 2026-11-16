@@ -48,6 +48,11 @@ const resetPasswordSchema = z.object({
   password: z.string().min(8, 'Mật khẩu tối thiểu 8 ký tự.').max(72),
 });
 
+const verifyResetCodeSchema = z.object({
+  email: z.string().trim().email('Email không hợp lệ.').max(160),
+  token: z.string().trim().min(4, 'Mã xác nhận tối thiểu 4 ký tự.').max(500),
+});
+
 /** Chế độ dev: chưa có email thì trả OTP/liên kết trực tiếp để test. */
 function devLinkEnabled() {
   // Không bao giờ trả OTP/liên kết trên production hoặc Render, kể cả khi
@@ -217,44 +222,6 @@ async function sendResetEmail(user) {
   return { delivered, otp };
 }
 
-async function sendAccountExistsEmail(user) {
-  const loginUrl = `${appUrl()}/dang-nhap`;
-  const forgotUrl = `${appUrl()}/quen-mat-khau`;
-
-  const text = [
-    `Xin chào ${user.full_name},`,
-    '',
-    'Email này đã được dùng để đăng ký tài khoản GâyQuỹ+.',
-    'Nếu bạn muốn đăng nhập, hãy mở: ' + loginUrl,
-    'Nếu bạn quên mật khẩu, hãy đặt lại tại: ' + forgotUrl,
-    '',
-    'Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email — tài khoản hiện tại vẫn an toàn.',
-  ].join('\n');
-
-  const html = emailLayout({
-    title: 'Tài khoản GâyQuỹ+ đã tồn tại',
-    intro: `Xin chào <b>${escapeHtml(user.full_name)}</b>, email này đã được dùng để đăng ký tài khoản GâyQuỹ+. Bạn có thể đăng nhập bằng mật khẩu hiện tại, hoặc đặt lại mật khẩu nếu đã quên.`,
-    buttonText: 'Đăng nhập',
-    url: loginUrl,
-    footer: `Quên mật khẩu? <a href="${forgotUrl}" style="color:#047857">Đặt lại mật khẩu</a>. Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email — tài khoản hiện tại vẫn an toàn.`,
-  });
-
-  let delivered = false;
-  try {
-    const result = await sendMail({
-      to: user.email,
-      subject: '[GâyQuỹ+] Tài khoản của bạn đã tồn tại',
-      text,
-      html,
-    });
-    delivered = result.delivered;
-  } catch (err) {
-    console.error('[mail] Không gửi được email thông báo tài khoản đã tồn tại:', err.message);
-  }
-
-  return { delivered };
-}
-
 async function buildSession(user) {
   const interests = await query(
     `select ui.category_id, c.name, ui.weight
@@ -279,7 +246,7 @@ async function buildSession(user) {
   };
 }
 
-// POST /api/auth/register — phản hồi trung tính, không tiết lộ email đã tồn tại
+// POST /api/auth/register — từ chối email đã tồn tại, tạo mới và báo đăng ký thành công
 router.post(
   '/register',
   rateLimit({ name: 'register-ip', windowMs: HOUR, max: 10 }),
@@ -288,57 +255,46 @@ router.post(
     const body = parse(registerSchema, req.body);
     const email = body.email.toLowerCase();
 
-    let user = null;
-    let created = false;
-
     const existed = await query(
-      `select ${USER_PUBLIC_COLUMNS} from users where lower(email) = $1`,
+      `select id from users where lower(email) = $1`,
       [email],
     );
-    user = existed.rows[0] || null;
-
-    if (!user) {
-      const passwordHash = await bcrypt.hash(body.password, 10);
-      try {
-        const { rows } = await query(
-          `insert into users (full_name, email, password_hash)
-           values ($1, $2, $3)
-           returning ${USER_PUBLIC_COLUMNS}`,
-          [body.full_name, email, passwordHash],
-        );
-        user = rows[0];
-        created = true;
-      } catch (err) {
-        // Hai yêu cầu đồng thời cho cùng email: coi như email đã tồn tại.
-        if (err?.code !== '23505') throw err;
-        const again = await query(
-          `select ${USER_PUBLIC_COLUMNS} from users where lower(email) = $1`,
-          [email],
-        );
-        user = again.rows[0] || null;
-      }
+    if (existed.rows[0]) {
+      throw new ApiError(409, 'Email đã tồn tại. Vui lòng đăng nhập hoặc đặt lại mật khẩu.', {
+        code: 'EMAIL_EXISTS',
+        email,
+      });
     }
 
-    let devUrl;
-    if (user && user.status !== 'locked') {
-      if (!user.email_verified_at) {
-        // Tài khoản mới hoặc tài khoản cũ chưa xác thực: gửi liên kết xác thực.
-        const mail = await sendVerificationEmail(user);
-        if (devLinkEnabled()) devUrl = mail.url;
-      } else if (!created) {
-        // Email đã có tài khoản: gửi hướng dẫn đăng nhập/đặt lại mật khẩu.
-        await sendAccountExistsEmail(user);
+    const passwordHash = await bcrypt.hash(body.password, 10);
+    let user;
+    try {
+      const { rows } = await query(
+        `insert into users (full_name, email, password_hash)
+         values ($1, $2, $3)
+         returning ${USER_PUBLIC_COLUMNS}`,
+        [body.full_name, email, passwordHash],
+      );
+      user = rows[0];
+    } catch (err) {
+      // Hai yêu cầu đồng thời cho cùng email: yêu cầu đến sau trả lỗi email đã tồn tại.
+      if (err?.code === '23505') {
+        throw new ApiError(409, 'Email đã tồn tại. Vui lòng đăng nhập hoặc đặt lại mật khẩu.', {
+          code: 'EMAIL_EXISTS',
+          email,
+        });
       }
+      throw err;
     }
 
-    // Luôn trả cùng một thông báo cho mọi email hợp lệ để chống dò tài khoản.
+    const mail = await sendVerificationEmail(user);
+
     res.status(201).json({
       ok: true,
       email,
       delivery: deliveryMode(),
-      message:
-        'Nếu email hợp lệ, chúng tôi đã gửi hướng dẫn tiếp theo. Vui lòng kiểm tra hộp thư (cả mục Spam).',
-      dev_verification_url: devUrl,
+      message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản trước khi đăng nhập.',
+      dev_verification_url: devLinkEnabled() ? mail.url : undefined,
     });
   }),
 );
@@ -466,6 +422,34 @@ router.post(
         : 'Máy chủ chưa cấu hình dịch vụ gửi email. Vui lòng liên hệ quản trị viên.',
       // Chỉ trả OTP khi chạy local và chưa cấu hình email. Không bao giờ trả OTP ở production.
       dev_otp: devLinkEnabled() ? otp : undefined,
+    });
+  }),
+);
+
+// POST /api/auth/verify-reset-code — kiểm tra OTP trước khi chuyển sang bước đặt mật khẩu mới
+router.post(
+  '/verify-reset-code',
+  rateLimit({ name: 'verify-reset-code-ip', windowMs: 15 * MINUTE, max: 30 }),
+  rateLimit({ name: 'verify-reset-code-email', windowMs: 15 * MINUTE, max: 10, key: byEmail }),
+  asyncHandler(async (req, res) => {
+    const body = parse(verifyResetCodeSchema, req.body);
+    const { rows } = await query(
+      `select id
+         from users
+        where lower(email) = $1
+          and reset_token_hash = $2
+          and reset_token_expires_at > now()
+          and status <> 'locked'`,
+      [body.email.toLowerCase(), hashToken(body.token)],
+    );
+
+    if (!rows[0]) {
+      throw new ApiError(400, 'Mã xác nhận không đúng hoặc đã hết hạn. Vui lòng kiểm tra lại email hoặc yêu cầu mã mới.');
+    }
+
+    res.json({
+      ok: true,
+      message: 'Mã xác nhận hợp lệ. Vui lòng đặt mật khẩu mới.',
     });
   }),
 );

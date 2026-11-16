@@ -252,7 +252,7 @@ async function main() {
   check('Đăng ký mật khẩu dưới 8 ký tự bị từ chối', shortPasswordRegister.status === 400, JSON.stringify(shortPasswordRegister.data));
 
   if (db) {
-    // Dùng tài khoản tạm bị khóa để kiểm tra phản hồi trung tính mà không gửi email ra ngoài.
+    // Dùng tài khoản tạm bị khóa để kiểm tra email trùng mà không gửi email ra ngoài.
     const dupEmail = `smoke.dup.${Date.now()}@gayquy.invalid`;
     const dupHash = await bcrypt.hash(PASSWORD, 10);
     const dup = await db.query(
@@ -266,12 +266,10 @@ async function main() {
       body: { full_name: 'Người Dùng Smoke', email: dupEmail, password: PASSWORD },
     });
     check(
-      'Đăng ký email đã tồn tại trả phản hồi trung tính',
-      duplicateRegister.status === 201 &&
-        duplicateRegister.data?.ok === true &&
-        !duplicateRegister.data?.user &&
-        !duplicateRegister.data?.token &&
-        /Nếu email hợp lệ/.test(duplicateRegister.data?.message || ''),
+      'Đăng ký email đã tồn tại trả lỗi 409',
+      duplicateRegister.status === 409 &&
+        duplicateRegister.data?.details?.code === 'EMAIL_EXISTS' &&
+        /Email đã tồn tại/.test(duplicateRegister.data?.error || ''),
       JSON.stringify(duplicateRegister.data),
     );
   } else {
@@ -285,11 +283,12 @@ async function main() {
       body: { full_name: 'Người Dùng Smoke', email, password: PASSWORD },
     });
     check(
-      'Đăng ký tài khoản mới trả phản hồi trung tính (chưa cấp token)',
+      'Đăng ký tài khoản mới thành công (chưa cấp token)',
       register.status === 201 &&
         register.data?.email === email.toLowerCase() &&
         !register.data?.token &&
-        !register.data?.user,
+        !register.data?.user &&
+        /Đăng ký thành công/.test(register.data?.message || ''),
       JSON.stringify(register.data),
     );
     if (db) {

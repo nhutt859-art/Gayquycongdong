@@ -152,15 +152,15 @@ Sau đó vẫn chạy `npm run db:check` → `npm run db:setup` → `npm run dev
 ### 4.1 Email xác thực & đặt lại mật khẩu
 
 - Đăng ký mới tạo tài khoản **chưa xác thực**; backend gửi liên kết `${APP_URL}/xac-thuc-email?token=...`. Mật khẩu tối thiểu **8 ký tự**.
-- Phản hồi `POST /auth/register` luôn trung tính với mọi email hợp lệ. Nếu email đã tồn tại, backend không tạo trùng mà gửi email hướng dẫn đăng nhập/đặt lại mật khẩu (hoặc gửi lại liên kết xác thực nếu tài khoản chưa xác thực).
+- `POST /auth/register` kiểm tra email trước khi tạo: email chưa từng đăng ký thì tạo tài khoản và trả `201` với thông báo **đăng ký thành công**; email đã tồn tại thì trả `409` kèm `details.code = EMAIL_EXISTS` và thông báo **email đã tồn tại**.
 - Chưa xác thực email thì `POST /auth/login` trả `403` với `details.code = EMAIL_NOT_VERIFIED`.
-- Quên mật khẩu gửi **mã OTP 6 chữ số** qua email; người dùng nhập OTP trên trang web. Mã hết hạn sau 60 phút.
+- Quên mật khẩu gửi **mã OTP 6 chữ số** qua email. Người dùng nhập OTP để xác nhận (`POST /auth/verify-reset-code`), sau đó giao diện chuyển sang bước đặt mật khẩu mới. Mã hết hạn sau 60 phút.
 - Token chỉ lưu dạng SHA-256, dùng một lần. Đặt lại mật khẩu tăng `users.token_version` nên mọi JWT cũ bị từ chối.
 - Chưa cấu hình email: nội dung email + OTP được in ra console backend; API chỉ trả `dev_otp` khi chạy local (không phải Render) và chưa cấu hình email.
 - Kiểm tra nhanh cấu hình trên server: `GET /api/health/mail` → `{ ok, provider, from }`.
 - Kiểm tra API key + sender Brevo đã xác minh chưa: đặt `HEALTH_VERIFY_TOKEN`, rồi gọi `GET /api/health/mail?verify=1&token=<token>` → `{ verify: { sender_found, sender_verified, ... } }`. Nếu chưa đặt token, endpoint trả `403` để tránh người lạ gọi API nhà cung cấp email.
-- Các endpoint auth (`register`, `login`, `verify-email`, `resend-verification`, `forgot-password`, `reset-password`) có giới hạn tần suất theo IP và email (RAM, phù hợp 1 instance Render). Nếu chạy nhiều instance, thay bằng Redis/Upstash.
-- Đăng ký, quên mật khẩu và gửi lại xác thực luôn trả thông báo trung tính, không tiết lộ email có tồn tại hay không.
+- Các endpoint auth (`register`, `login`, `verify-email`, `resend-verification`, `forgot-password`, `verify-reset-code`, `reset-password`) có giới hạn tần suất theo IP và email (RAM, phù hợp 1 instance Render). Nếu chạy nhiều instance, thay bằng Redis/Upstash.
+- Đăng ký báo rõ email đã tồn tại hay chưa; quên mật khẩu và gửi lại xác thực vẫn trả thông báo trung tính để hạn chế dò tài khoản.
 
 > **Quan trọng khi deploy Render:** từ 26/09/2025, Render **free** chặn outbound SMTP cổng 25/465/587. Gmail SMTP sẽ timeout dù cấu hình đúng. Hãy dùng HTTP API (Brevo/Resend/SendGrid) — các dịch vụ này gửi qua HTTPS cổng 443.
 
@@ -268,7 +268,7 @@ Tất cả dưới tiền tố `/api`. Route cần đăng nhập dùng header `A
 
 | Nhóm | Endpoint |
 |---|---|
-| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/forgot-password`, `POST /auth/reset-password`, `GET /auth/me`, `POST /auth/logout` |
+| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/forgot-password`, `POST /auth/verify-reset-code`, `POST /auth/reset-password`, `GET /auth/me`, `POST /auth/logout` |
 | Danh mục | `GET /categories` |
 | Dự án công khai | `GET /projects`, `GET /projects/:id`, `GET /projects/:id/pledges` |
 | Tạo & quản lý dự án | `POST /projects`, `PATCH /projects/:id`, `POST /projects/:id/close` |

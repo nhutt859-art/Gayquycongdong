@@ -4,9 +4,11 @@ import { useApp } from '../context/AppContext';
 import { colors } from '../theme';
 import { Button, Card, Input, Screen } from '../components/ui';
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 export default function ForgotPasswordScreen({ navigation }) {
-  const { forgotPassword, resetPassword, toast } = useApp();
-  const [step, setStep] = useState('request');
+  const { forgotPassword, verifyResetCode, resetPassword, toast } = useApp();
+  const [step, setStep] = useState('request'); // request | verify | password | done
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
@@ -15,19 +17,31 @@ export default function ForgotPasswordScreen({ navigation }) {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [devOtp, setDevOtp] = useState('');
+  const emailError =
+    email.trim() && !EMAIL_RE.test(email.trim()) ? 'Email không hợp lệ.' : '';
 
+  // Bước 1: gửi mã OTP về email
   const sendOtp = async () => {
     const trimmed = email.trim();
     if (!trimmed) {
       setError('Vui lòng nhập email.');
       return;
     }
+    if (!EMAIL_RE.test(trimmed)) {
+      setError('Email không hợp lệ.');
+      return;
+    }
     setBusy(true);
     setError('');
+    setInfo('');
+    setDevOtp('');
     try {
       const data = await forgotPassword(trimmed);
       setInfo(data?.message || 'Nếu email hợp lệ, mã OTP đã được gửi. Vui lòng kiểm tra hộp thư (cả mục Spam).');
       if (data?.dev_otp) setDevOtp(data.dev_otp);
+      setOtp('');
+      setPassword('');
+      setConfirm('');
       setStep('verify');
     } catch (err) {
       setError(err.message);
@@ -36,11 +50,26 @@ export default function ForgotPasswordScreen({ navigation }) {
     }
   };
 
-  const reset = async () => {
+  // Bước 2: xác nhận mã OTP rồi mới chuyển sang giao diện đổi mật khẩu
+  const verifyOtp = async () => {
     if (!otp.trim()) {
       setError('Vui lòng nhập mã OTP.');
       return;
     }
+    setBusy(true);
+    setError('');
+    try {
+      await verifyResetCode({ email: email.trim(), token: otp.trim() });
+      setStep('password');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Bước 3: đặt mật khẩu mới
+  const reset = async () => {
     if (password.length < 8) {
       setError('Mật khẩu mới tối thiểu 8 ký tự.');
       return;
@@ -60,6 +89,14 @@ export default function ForgotPasswordScreen({ navigation }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const changeEmail = () => {
+    setStep('request');
+    setOtp('');
+    setPassword('');
+    setConfirm('');
+    setError('');
   };
 
   return (
@@ -84,7 +121,9 @@ export default function ForgotPasswordScreen({ navigation }) {
             <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4, lineHeight: 18 }}>
               {step === 'request'
                 ? 'Nhập email đã đăng ký. Chúng tôi sẽ gửi mã OTP 6 chữ số để đặt lại mật khẩu.'
-                : 'Nhập mã OTP trong email và mật khẩu mới của bạn.'}
+                : step === 'verify'
+                  ? 'Nhập mã OTP trong email để xác nhận. Sau khi mã đúng, bạn sẽ chuyển sang màn hình đặt mật khẩu mới.'
+                  : 'Mã xác nhận đã đúng. Hãy nhập mật khẩu mới cho tài khoản của bạn.'}
             </Text>
 
             <View style={{ height: 14 }} />
@@ -95,15 +134,16 @@ export default function ForgotPasswordScreen({ navigation }) {
                   label="Email"
                   value={email}
                   onChangeText={setEmail}
-                  placeholder="ban@example.com"
+                  placeholder="Nhập email"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  error={emailError}
                 />
                 {error ? <ErrorBox message={error} /> : null}
                 <Button title="Gửi mã OTP" onPress={sendOtp} loading={busy} />
               </>
-            ) : (
+            ) : step === 'verify' ? (
               <>
                 <View style={{ backgroundColor: colors.primaryPale, borderRadius: 10, padding: 10, marginBottom: 12 }}>
                   <Text style={{ fontSize: 12, color: colors.primaryDark, lineHeight: 18 }}>
@@ -123,6 +163,26 @@ export default function ForgotPasswordScreen({ navigation }) {
                   keyboardType="number-pad"
                   maxLength={6}
                 />
+                {error ? <ErrorBox message={error} /> : null}
+                <Button title="Xác nhận mã" onPress={verifyOtp} loading={busy} />
+                <Button
+                  title="Gửi lại mã OTP"
+                  variant="ghost"
+                  onPress={sendOtp}
+                  loading={busy}
+                  style={{ marginTop: 8 }}
+                />
+                <Pressable onPress={changeEmail} style={{ marginTop: 12, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 12, color: colors.muted }}>← Đổi email khác</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <View style={{ backgroundColor: colors.primaryPale, borderRadius: 10, padding: 10, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 12, color: colors.primaryDark, lineHeight: 18 }}>
+                    Xác nhận mã OTP thành công cho <Text style={{ fontWeight: '900' }}>{email.trim()}</Text>.
+                  </Text>
+                </View>
                 <Input
                   label="Mật khẩu mới"
                   value={password}
@@ -140,15 +200,14 @@ export default function ForgotPasswordScreen({ navigation }) {
                 />
                 {error ? <ErrorBox message={error} /> : null}
                 <Button title="Đặt lại mật khẩu" onPress={reset} loading={busy} />
-                <Button
-                  title="Gửi lại mã OTP"
-                  variant="ghost"
-                  onPress={sendOtp}
-                  loading={busy}
-                  style={{ marginTop: 8 }}
-                />
-                <Pressable onPress={() => setStep('request')} style={{ marginTop: 12, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 12, color: colors.muted }}>← Đổi email khác</Text>
+                <Pressable
+                  onPress={() => {
+                    setStep('verify');
+                    setError('');
+                  }}
+                  style={{ marginTop: 12, alignItems: 'center' }}
+                >
+                  <Text style={{ fontSize: 12, color: colors.muted }}>← Nhập lại mã xác nhận</Text>
                 </Pressable>
               </>
             )}

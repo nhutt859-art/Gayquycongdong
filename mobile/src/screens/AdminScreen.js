@@ -33,6 +33,7 @@ import {
 const TABS = [
   ['overview', 'Tổng quan'],
   ['pending', 'Duyệt dự án'],
+  ['projects', 'Dự án & cộng tác'],
   ['payouts', 'Giải ngân'],
   ['fraud', 'Gian lận'],
   ['users', 'Người dùng'],
@@ -46,6 +47,7 @@ export default function AdminScreen({ navigation, route }) {
   const [error, setError] = useState('');
   const [stats, setStats] = useState(null);
   const [pendingProjects, setPendingProjects] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [payouts, setPayouts] = useState([]);
   const [flags, setFlags] = useState([]);
   const [reports, setReports] = useState([]);
@@ -68,6 +70,9 @@ export default function AdminScreen({ navigation, route }) {
       } else if (tab === 'pending') {
         const data = await api.get('/admin/projects?status=pending_review');
         setPendingProjects(data?.items || []);
+      } else if (tab === 'projects') {
+        const data = await api.get('/admin/projects');
+        setProjects(data?.items || []);
       } else if (tab === 'payouts') {
         const data = await api.get('/admin/payouts');
         setPayouts(data?.items || []);
@@ -448,6 +453,85 @@ export default function AdminScreen({ navigation, route }) {
                 </View>
               </Card>
             ))
+          )}
+        </View>
+      ) : null}
+
+      {!loading && !error && tab === 'projects' ? (
+        <View>
+          <SectionHeader
+            title={`Dự án & cộng tác (${projects.length})`}
+            subtitle="Thông tin chủ dự án, liên hệ và cộng tác viên"
+          />
+          {projects.length === 0 ? (
+            <EmptyState icon="📁" title="Chưa có dự án nào" />
+          ) : (
+            projects.map((p) => {
+              const collaborators = p.collaborators || [];
+              return (
+                <Card key={p.id} style={{ padding: 12, marginBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                    <Text style={{ fontSize: 28, marginRight: 8 }}>{p.cover_emoji || '📁'}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: '800', fontSize: 13 }}>{p.title}</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 }}>
+                        <StatusBadge status={p.status} />
+                        <Badge label={p.category_name || 'Dự án'} style={{ marginLeft: 4 }} />
+                        <Badge label={vnd(p.current_amount)} tone="emerald" style={{ marginLeft: 4 }} />
+                      </View>
+                      <Text style={{ fontSize: 10, color: colors.muted, marginTop: 4 }}>
+                        {p.backer_count} nhà tài trợ · {p.reward_count} gói · tạo {formatDate(p.created_at)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={{ backgroundColor: colors.primaryPale, borderRadius: 10, padding: 9, marginTop: 8 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: colors.primaryDark }}>Chủ dự án</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '800', marginTop: 2 }}>{p.owner_name}</Text>
+                    <Text style={{ fontSize: 10, color: colors.muted }}>
+                      {p.owner_email || 'Chưa có email'} · SĐT: {p.owner_phone || 'Chưa cập nhật'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 }}>
+                      <Badge
+                        label={kycVi[p.owner_kyc_status] || p.owner_kyc_status || 'Chưa xác thực'}
+                        tone={p.owner_kyc_status === 'verified' ? 'emerald' : 'amber'}
+                      />
+                      <Badge
+                        label={`Tin cậy ${Math.round(Number(p.owner_trust_score || 0))}/100`}
+                        style={{ marginLeft: 4 }}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={{ backgroundColor: colors.indigoSoft, borderRadius: 10, padding: 9, marginTop: 6 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: colors.indigo }}>
+                      Cộng tác viên ({collaborators.length})
+                    </Text>
+                    {collaborators.length === 0 ? (
+                      <Text style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>Chưa có cộng tác viên.</Text>
+                    ) : (
+                      collaborators.map((c) => (
+                        <View key={c.user_id} style={{ marginTop: 5 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '800' }}>{c.full_name}</Text>
+                          <Text style={{ fontSize: 10, color: colors.muted }}>
+                            {c.email} · {c.role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'} ·{' '}
+                            {c.accepted_at ? `đã nhận ${formatDate(c.accepted_at)}` : 'chờ chấp nhận'}
+                          </Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+
+                  <Button
+                    title="Xem dự án"
+                    variant="ghost"
+                    icon="open-outline"
+                    onPress={() => navigation.navigate('ProjectDetail', { id: p.id })}
+                    style={{ marginTop: 8 }}
+                  />
+                </Card>
+              );
+            })
           )}
         </View>
       ) : null}

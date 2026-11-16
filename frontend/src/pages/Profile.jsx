@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
-import { EmptyState, ErrorState, Loading, PageHeader, Spinner, StatCard } from '../components/ui';
+import { EmptyState, ErrorState, Loading, Modal, PageHeader, Spinner, StatCard } from '../components/ui';
 import {
   formatDate,
   kycVi,
@@ -39,6 +39,8 @@ export default function Profile() {
   const [emailDevUrl, setEmailDevUrl] = useState('');
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileError, setProfileError] = useState('');
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const [form, setForm] = useState({ full_name: '', phone: '', avatar_url: '' });
 
   useEffect(() => {
@@ -226,13 +228,7 @@ export default function Profile() {
               <Link to="/chon-so-thich" className="link mt-2 inline-block text-xs">Cập nhật chủ đề →</Link>
             </div>
 
-            <button
-              className="link mt-4 text-sm"
-              onClick={async () => {
-                await logout();
-                nav('/');
-              }}
-            >
+            <button className="link mt-4 text-sm" onClick={() => setLogoutOpen(true)}>
               Đăng xuất
             </button>
           </div>
@@ -364,6 +360,35 @@ export default function Profile() {
           )}
         </div>
       </div>
+
+      <Modal
+        open={logoutOpen}
+        title="Xác nhận đăng xuất"
+        onClose={() => setLogoutOpen(false)}
+        footer={
+          <>
+            <button className="btn-ghost text-sm" onClick={() => setLogoutOpen(false)}>Hủy</button>
+            <button
+              className="btn-primary text-sm disabled:opacity-60"
+              disabled={logoutBusy}
+              onClick={async () => {
+                setLogoutBusy(true);
+                try {
+                  await logout();
+                  setLogoutOpen(false);
+                  nav('/');
+                } finally {
+                  setLogoutBusy(false);
+                }
+              }}
+            >
+              {logoutBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang đăng xuất…</> : 'Xác nhận'}
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">Bạn có chắc chắn muốn đăng xuất?</p>
+      </Modal>
     </div>
   );
 }
