@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { Spinner } from '../components/ui';
 import { clearPendingRegistration } from '../lib/pendingRegistration';
@@ -486,6 +487,69 @@ export function VerifyEmail() {
             <p className="text-sm text-slate-600">{state.message}</p>
             <Link to="/dang-nhap" className="btn-primary block text-center text-sm">Về trang đăng nhập</Link>
             <Link to="/quen-mat-khau" className="link block text-center text-sm">Cần đặt lại mật khẩu?</Link>
+          </>
+        )}
+      </div>
+    </AuthCard>
+  );
+}
+
+// Xác thực email KYC bằng token trong email
+export function VerifyKyc() {
+  const { currentUser, refreshSession } = useApp();
+  const [params] = useSearchParams();
+  const token = params.get('token') || '';
+  const [state, setState] = useState({ status: 'loading', message: '', user: null });
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    if (!token) {
+      setState({ status: 'error', message: 'Thiếu mã xác thực KYC trong liên kết.', user: null });
+      return;
+    }
+    api
+      .post('/auth/verify-kyc', { token }, { auth: false })
+      .then(async (data) => {
+        if (currentUser) {
+          await refreshSession().catch(() => {});
+        }
+        setState({ status: 'success', message: data.message, user: data.user });
+      })
+      .catch((err) => setState({ status: 'error', message: err.message, user: null }));
+  }, [token, currentUser, refreshSession]);
+
+  return (
+    <AuthCard>
+      <div className="card space-y-3 p-6">
+        {state.status === 'loading' && (
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <Spinner className="h-4 w-4" /> Đang xác thực hồ sơ danh tính…
+          </div>
+        )}
+        {state.status === 'success' && (
+          <>
+            <div className="text-3xl">✅</div>
+            <h1 className="text-xl font-bold">Xác thực danh tính thành công</h1>
+            <p className="text-sm text-slate-600">
+              {state.user?.email ? <>Tài khoản <b>{state.user.email}</b> đã hoàn tất KYC. </> : null}
+              {state.message}
+            </p>
+            <Link to={currentUser ? '/ca-nhan' : '/dang-nhap'} className="btn-primary block text-center text-sm">
+              {currentUser ? 'Về hồ sơ cá nhân' : 'Đăng nhập ngay'}
+            </Link>
+          </>
+        )}
+        {state.status === 'error' && (
+          <>
+            <div className="text-3xl">⚠️</div>
+            <h1 className="text-xl font-bold">Không xác thực được hồ sơ KYC</h1>
+            <p className="text-sm text-slate-600">{state.message}</p>
+            {currentUser && (
+              <Link to="/ca-nhan" className="btn-primary block text-center text-sm">Về hồ sơ để gửi lại email</Link>
+            )}
+            <Link to="/dang-nhap" className="link block text-center text-sm">Về trang đăng nhập</Link>
           </>
         )}
       </div>

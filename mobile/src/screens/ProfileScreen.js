@@ -10,10 +10,12 @@ import {
   kycVi,
   pledgeStatusVi,
   roleVi,
+  statusVi,
   transactionStatusVi,
   transactionTypeVi,
   vnd,
 } from '../lib/format';
+import { PHONE_HINT, isValidVietnamesePhone } from '../lib/phone';
 import { colors } from '../theme';
 import {
   Avatar,
@@ -44,12 +46,13 @@ export default function ProfileScreen({ navigation }) {
   } = useApp();
   const [pledges, setPledges] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [projectData, setProjectData] = useState({ owned: [], collaborating: [], invitations: [] });
+  const [projectListTab, setProjectListTab] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [form, setForm] = useState({ full_name: '', phone: '', avatar_url: '' });
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileError, setProfileError] = useState('');
-  const [kycBusy, setKycBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailMsg, setEmailMsg] = useState('');
 
@@ -67,9 +70,18 @@ export default function ProfileScreen({ navigation }) {
     setLoading(true);
     setLoadError('');
     try {
-      const [pledgeData, txData] = await Promise.all([api.get('/me/pledges'), api.get('/me/transactions')]);
+      const [pledgeData, txData, projectsData] = await Promise.all([
+        api.get('/me/pledges'),
+        api.get('/me/transactions'),
+        api.get('/me/projects'),
+      ]);
       setPledges(pledgeData?.items || []);
       setTransactions(txData?.items || []);
+      setProjectData({
+        owned: projectsData?.owned || [],
+        collaborating: projectsData?.collaborating || [],
+        invitations: projectsData?.invitations || [],
+      });
     } catch (err) {
       setLoadError(err.message);
     } finally {
@@ -83,23 +95,18 @@ export default function ProfileScreen({ navigation }) {
     }, [loadHistory]),
   );
 
-  const startKyc = async () => {
-    setKycBusy(true);
-    try {
-      const data = await api.post('/me/kyc');
-      updateCurrentUser(data.user);
-      await refreshSession();
-      toast('Xác thực danh tính thành công.', 'success');
-    } catch (err) {
-      toast(err.message, 'error');
-    } finally {
-      setKycBusy(false);
-    }
-  };
+  const phoneValue = form.phone.trim();
+  const phoneInvalid = Boolean(phoneValue) && !isValidVietnamesePhone(phoneValue);
+  const phoneError = phoneInvalid ? `Số điện thoại chưa hợp lệ. ${PHONE_HINT}` : '';
+  const phoneHint = phoneValue && !phoneInvalid ? '✓ Số điện thoại hợp lệ.' : PHONE_HINT;
 
   const saveProfile = async () => {
     if (form.full_name.trim().length < 2) {
       setProfileError('Họ tên tối thiểu 2 ký tự.');
+      return;
+    }
+    if (phoneInvalid) {
+      setProfileError(`Số điện thoại chưa hợp lệ. ${PHONE_HINT}`);
       return;
     }
     setProfileBusy(true);
@@ -192,10 +199,22 @@ export default function ProfileScreen({ navigation }) {
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 }}>
           <View style={{ width: '50%', padding: 3 }}>
-            <StatTile label="Dự án sở hữu" value={stats.owned_projects ?? 0} />
+            <StatTile
+              label="Dự án sở hữu"
+              value={stats.owned_projects ?? 0}
+              onPress={() => setProjectListTab((tab) => (tab === 'owned' ? '' : 'owned'))}
+              active={projectListTab === 'owned'}
+              hint="Bấm để xem tên dự án"
+            />
           </View>
           <View style={{ width: '50%', padding: 3 }}>
-            <StatTile label="Dự án cộng tác" value={stats.collaborating_projects ?? 0} />
+            <StatTile
+              label="Dự án cộng tác"
+              value={stats.collaborating_projects ?? 0}
+              onPress={() => setProjectListTab((tab) => (tab === 'collab' ? '' : 'collab'))}
+              active={projectListTab === 'collab'}
+              hint="Bấm để xem tên dự án"
+            />
           </View>
           <View style={{ width: '50%', padding: 3 }}>
             <StatTile label="Tổng đã tài trợ" value={vnd(stats.total_pledged ?? 0)} />
@@ -204,6 +223,41 @@ export default function ProfileScreen({ navigation }) {
             <StatTile label="Thông báo chưa đọc" value={unread} />
           </View>
         </View>
+
+        {projectListTab ? (
+          <View style={{ marginTop: 8, backgroundColor: colors.slateSoft, borderRadius: 12, padding: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: '#334155', flex: 1 }}>
+                {projectListTab === 'owned' ? 'Dự án sở hữu' : 'Dự án cộng tác'}
+              </Text>
+              <Pressable onPress={() => navigation.navigate('MyProjects')} hitSlop={8}>
+                <Text style={{ fontSize: 11, color: colors.primary, fontWeight: '800' }}>Xem tất cả →</Text>
+              </Pressable>
+            </View>
+            {(projectListTab === 'owned' ? projectData.owned : projectData.collaborating).length === 0 ? (
+              <Text style={{ fontSize: 11, color: colors.muted }}>
+                {projectListTab === 'owned' ? 'Bạn chưa sở hữu dự án nào.' : 'Bạn chưa cộng tác dự án nào.'}
+              </Text>
+            ) : (
+              (projectListTab === 'owned' ? projectData.owned : projectData.collaborating).map((p) => (
+                <Pressable
+                  key={p.id}
+                  onPress={() => navigation.navigate('ProjectDetail', { id: p.id })}
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
+                >
+                  <Text style={{ fontSize: 13, marginRight: 6 }}>{p.cover_emoji || '🌱'}</Text>
+                  <Text style={{ fontSize: 12, color: colors.text, flex: 1 }} numberOfLines={1}>
+                    {p.title}
+                  </Text>
+                  <Text style={{ fontSize: 10, color: colors.muted, marginLeft: 6 }}>
+                    {statusVi[p.status] || p.status}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={14} color={colors.soft} style={{ marginLeft: 3 }} />
+                </Pressable>
+              ))
+            )}
+          </View>
+        ) : null}
 
         <View style={{ marginTop: 10 }}>
           {currentUser.email_verified ? (
@@ -260,6 +314,8 @@ export default function ProfileScreen({ navigation }) {
           onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
           keyboardType="phone-pad"
           placeholder="09xxxxxxxx"
+          error={phoneError}
+          hint={phoneHint}
         />
         <Input
           label="Ảnh đại diện (URL)"
@@ -271,14 +327,20 @@ export default function ProfileScreen({ navigation }) {
         {profileError ? <Text style={{ fontSize: 11, color: colors.red, marginBottom: 6 }}>{profileError}</Text> : null}
         <Button title="Lưu hồ sơ" onPress={saveProfile} loading={profileBusy} />
         {currentUser.kyc_status !== 'verified' ? (
-          <Button
-            title="Xác thực danh tính (KYC mô phỏng)"
-            variant="soft"
-            icon="id-card-outline"
-            onPress={startKyc}
-            loading={kycBusy}
-            style={{ marginTop: 8 }}
-          />
+          <>
+            <Button
+              title={currentUser.kyc_status === 'pending' ? 'Tiếp tục xác thực danh tính' : 'Xác thực danh tính (CCCD/hộ chiếu)'}
+              variant="soft"
+              icon="id-card-outline"
+              onPress={() => navigation.navigate('Kyc')}
+              style={{ marginTop: 8 }}
+            />
+            {currentUser.kyc_status === 'pending' ? (
+              <Text style={{ fontSize: 10, color: colors.muted, marginTop: 5, lineHeight: 15 }}>
+                Hồ sơ KYC đã được tiếp nhận. Mở email xác thực đã gửi tới bạn để hoàn tất, hoặc vào trang KYC để gửi lại email.
+              </Text>
+            ) : null}
+          </>
         ) : null}
       </Card>
 

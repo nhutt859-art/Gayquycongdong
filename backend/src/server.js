@@ -85,7 +85,7 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   }),
 );
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '20mb' }));
 
 if (process.env.NODE_ENV !== 'production') {
   app.use((req, res, next) => {

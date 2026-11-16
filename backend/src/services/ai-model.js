@@ -15,7 +15,7 @@ import { query } from '../db.js';
  */
 
 const MODEL_KEY = 'project_success';
-const MODEL_VERSION = 'logreg-v3.1';
+const MODEL_VERSION = 'success-model-v4.0';
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));

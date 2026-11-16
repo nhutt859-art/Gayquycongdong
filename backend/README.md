@@ -268,18 +268,20 @@ Tất cả dưới tiền tố `/api`. Route cần đăng nhập dùng header `A
 
 | Nhóm | Endpoint |
 |---|---|
-| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/forgot-password`, `POST /auth/verify-reset-code`, `POST /auth/reset-password`, `GET /auth/me`, `POST /auth/logout` |
+| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/forgot-password`, `POST /auth/verify-reset-code`, `POST /auth/reset-password`, `POST /auth/verify-kyc`, `GET /auth/admin-contact`, `GET /auth/me`, `POST /auth/logout` |
 | Danh mục | `GET /categories` |
 | Dự án công khai | `GET /projects`, `GET /projects/:id`, `GET /projects/:id/pledges` |
 | Tạo & quản lý dự án | `POST /projects`, `PATCH /projects/:id`, `POST /projects/:id/close` |
 | Tương tác | `POST /projects/:id/comments`, `POST /projects/:id/follow`, `DELETE /projects/:id/follow`, `POST /projects/:id/reports` |
-| Tài trợ | `POST /projects/:id/pledges` (mô phỏng thanh toán, ghi `transactions`) |
+| Tài trợ | `POST /projects/:id/pledges` (ghi nhận tài trợ, kiểm tra rủi ro, ghi `transactions`) |
 | Gói tri ân | `POST/PATCH/DELETE /projects/:id/rewards...` |
 | Cộng tác viên | `GET/POST/PATCH/DELETE /projects/:id/collaborators...` |
 | Giải ngân | `POST /projects/:id/payouts` |
-| Cá nhân | `GET/PATCH /me`, `POST /me/kyc`, `PUT /me/interests`, `GET /me/projects`, `GET /me/pledges`, `GET /me/transactions`, `GET /me/notifications`, `GET /me/recommendations` |
+| Cá nhân | `GET/PATCH /me`, `POST /me/kyc`, `POST /me/kyc/resend`, `PUT /me/interests`, `GET /me/projects`, `GET /me/pledges`, `GET /me/transactions`, `GET /me/notifications`, `GET /me/recommendations` |
 | Lời mời | `POST /me/invitations/:projectId/accept`, `.../decline` |
-| Admin | `GET /admin/stats`, duyệt/từ chối/hoàn tiền dự án, duyệt/từ chối giải ngân, cảnh báo gian lận, báo cáo, người dùng, CRUD danh mục |
+| Admin | `GET /admin/stats`, duyệt/từ chối/hoàn tiền dự án, duyệt/từ chối giải ngân, cảnh báo gian lận, báo cáo, người dùng, `GET /admin/users/:id/kyc`, CRUD danh mục |
+
+Khi chủ dự án bị khóa, backend chuyển các dự án `draft`/`pending_review`/`active` sang `suspended`, thông báo cho cộng tác viên/nhà tài trợ/người theo dõi và chặn mọi thao tác quản lý của người không phải admin. Mở khóa sẽ khôi phục trạng thái trước đó từ `projects.suspended_from_status`.
 
 ## 7. Tài khoản thử nghiệm
 
@@ -309,8 +311,8 @@ Bộ dữ liệu `db:seed:realistic -- --apply` tạo 200 dự án với đủ t
 
 ## 9. Lưu ý phạm vi đồ án
 
-- Thanh toán chỉ **mô phỏng** (kể cả nút “giả lập thất bại”), không kết nối cổng thanh toán thật.
-- KYC mô phỏng tự xác thực ngay; không có OCR/giấy tờ thật.
+- Thanh toán được ghi nhận qua luồng nội bộ của hệ thống (không kết nối cổng thanh toán bên ngoài); mỗi giao dịch đều được chấm điểm rủi ro và lưu bằng chứng để quản trị viên xác minh.
+- KYC sử dụng OCR thật (Tesseract) trên ảnh CCCD/hộ chiếu, đối chiếu số giấy tờ, họ tên và ngày sinh; chặn trùng số giấy tờ giữa các tài khoản và xác thực qua email liên hệ.
 - Dữ liệu lịch sử là dữ liệu tổng hợp có kiểm soát, không phải người dùng thật. Mô hình logistic regression học trên dữ liệu này (AUC 0.704, kiểm định chéo 5 fold) chỉ dùng để minh hoạ quy trình ra quyết định.
 - Mô hình gian lận dựa trên bằng chứng độc lập và ngưỡng cảnh báo 60%; admin vẫn phải xác minh từng trường hợp, hệ thống không tự kết luận.
 - JWT lưu `localStorage`; đăng xuất chỉ xoá token phía client.

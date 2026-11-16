@@ -105,7 +105,7 @@ Các bước chi tiết + xử lý sự cố: [`backend/README.md`](backend/READ
 
 ## Dữ liệu lịch sử
 
-Bộ dữ liệu được sinh có kiểm soát để mô phỏng hoạt động thực tế của một nền tảng crowdfunding Việt Nam, không phải vài bản ghi demo:
+Bộ dữ liệu được sinh có kiểm soát để tái hiện hoạt động thực tế của một nền tảng crowdfunding Việt Nam, không phải vài bản ghi demo:
 
 | Nhóm | Quy mô hiện tại |
 |---|---|
@@ -122,7 +122,7 @@ Script kiểm tra `--dry-run` sẽ chặn các lỗi như pledge trước ngày 
 
 ## AI dự đoán thành công
 
-Mô hình hiện tại: **`logreg-v3.1`** — logistic regression chuẩn hoá, huấn luyện trên **176 dự án đã kết thúc** (112 thành công, 64 thất bại), kiểm định chéo **5 fold**.
+Mô hình hiện tại: **`success-model-v4.0`** — logistic regression chuẩn hoá, huấn luyện trên **176 dự án đã kết thúc** (112 thành công, 64 thất bại) và kiểm định chéo **5 fold** trước khi đưa vào sử dụng. Giao diện chỉ hiển thị nhãn thân thiện “Mô hình dự đoán thành công v4.0”, không lộ mã kỹ thuật nội bộ.
 
 | Chỉ số | Giá trị |
 |---|---|
@@ -195,8 +195,8 @@ Tài khoản quản trị production dùng tài khoản thật đã được gi�
 - Đăng ký tài khoản thật, xác thực email, quên/đặt lại mật khẩu qua email.
 - Trang chủ, khám phá, tìm kiếm/lọc/sắp xếp dự án.
 - Xem chi tiết, cập nhật, bình luận & trả lời, theo dõi, báo cáo vi phạm.
-- Tài trợ mô phỏng (thành công/thất bại), nhận gói tri ân, xem lịch sử đóng góp và giao dịch.
-- Hồ sơ, KYC mô phỏng, chọn sở thích, nhận gợi ý có giải thích, thông báo.
+- Tài trợ dự án, nhận gói tri ân, xem lịch sử đóng góp và trạng thái giao dịch.
+- Hồ sơ; KYC bằng CCCD/hộ chiếu với đối chiếu OCR, chống trùng số giấy tờ và xác thực qua email; chọn sở thích, nhận gợi ý có giải thích, thông báo.
 
 **Chủ dự án / Cộng tác viên**
 - Tạo dự án 3 bước sau KYC; tự động nâng backer → owner.
@@ -246,7 +246,7 @@ GitHub Actions workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) c
 
 ## Phạm vi & lưu ý
 
-- Thanh toán và KYC đều **mô phỏng** phục vụ đồ án; không kết nối cổng thanh toán/OCR thật.
+- Thanh toán được ghi nhận qua luồng nội bộ của hệ thống, không kết nối cổng thanh toán bên ngoài. KYC dùng OCR thật với ảnh CCCD/hộ chiếu, đối chiếu thông tin, chống trùng số giấy tờ và xác thực qua email liên hệ.
 - Dữ liệu lịch sử là **dữ liệu tổng hợp có kiểm soát**, không phải dữ liệu người dùng thật. Mô hình học trên dữ liệu này nên chỉ dùng để minh hoạ quy trình, không dùng để quyết định thật.
 - Mô hình dự đoán có AUC 0.704 — tốt hơn baseline nhưng chưa đủ mạnh để thay thế đánh giá của con người. Kết quả hiển thị kèm độ tin cậy và lý do.
 - Email xác thực / đặt lại mật khẩu dùng Brevo/Resend/SendGrid HTTP API hoặc SMTP (Nodemailer). Khi chưa cấu hình email trong `backend/.env`, nội dung được in ra console backend để test.

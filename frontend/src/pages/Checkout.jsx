@@ -19,7 +19,6 @@ export default function Checkout() {
   const [amount, setAmount] = useState(200000);
   const [method, setMethod] = useState('VNPay');
   const [anonymous, setAnonymous] = useState(false);
-  const [simulateFailure, setSimulateFailure] = useState(false);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -73,7 +72,7 @@ export default function Checkout() {
           <div className="mx-auto mt-4 max-w-sm rounded-xl bg-slate-50 p-3 text-left text-sm">
             <div className="flex justify-between"><span>Phương thức</span><b>{method}</b></div>
             <div className="flex justify-between"><span>Ẩn danh</span><b>{anonymous ? 'Có' : 'Không'}</b></div>
-            <div className="flex justify-between"><span>Trạng thái</span><b className="text-emerald-700">Đã thanh toán (mô phỏng)</b></div>
+            <div className="flex justify-between"><span>Trạng thái</span><b className="text-emerald-700">Đã thanh toán</b></div>
           </div>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Link to={`/du-an/${project.id}`} className="btn-ghost text-sm">Về trang dự án</Link>
@@ -124,7 +123,6 @@ export default function Checkout() {
         reward_id: preset?.id || null,
         is_anonymous: anonymous,
         method,
-        simulate_failure: simulateFailure,
       });
       setResult(data);
       setStep(3);
@@ -221,7 +219,6 @@ export default function Checkout() {
               <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
               Tài trợ ẩn danh (tên không hiển thị với chủ dự án)
             </label>
-
             <button className="btn-primary w-full disabled:opacity-50" disabled={!canDonate} onClick={goToPayment}>
               Tiếp tục thanh toán
             </button>
@@ -252,11 +249,6 @@ export default function Checkout() {
                 ? ' Khoản tài trợ lớn có thể được gắn cờ để quản trị viên xem xét.'
                 : ' Hệ thống ghi nhận giao dịch và cập nhật tiến độ dự án ngay lập tức.'}
             </AIBox>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={simulateFailure} onChange={(e) => setSimulateFailure(e.target.checked)} />
-              Giả lập thanh toán thất bại (để kiểm thử)
-            </label>
 
             {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 

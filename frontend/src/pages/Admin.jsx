@@ -12,12 +12,14 @@ import {
   ModelCard,
   Spinner,
   StatCard,
+  StatusBadge,
 } from '../components/ui';
 import {
   compactMoney,
   formatDate,
   formatDateTime,
   kycVi,
+  modelVersionLabel,
   roleVi,
   transactionStatusVi,
   vnd,
@@ -71,6 +73,10 @@ export function Admin({ tab = 'tong-quan' }) {
   const [users, setUsers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [userSearch, setUserSearch] = useState('');
+  const [kycTarget, setKycTarget] = useState(null);
+  const [kycDetail, setKycDetail] = useState(null);
+  const [kycDetailBusy, setKycDetailBusy] = useState(false);
+  const [kycDetailError, setKycDetailError] = useState('');
   const [rejectTarget, setRejectTarget] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [newCategory, setNewCategory] = useState({ name: '', description: '' });
@@ -193,6 +199,21 @@ export function Admin({ tab = 'tong-quan' }) {
     }
   };
 
+  const openKyc = async (user) => {
+    setKycTarget(user);
+    setKycDetail(null);
+    setKycDetailError('');
+    setKycDetailBusy(true);
+    try {
+      const data = await api.get(`/admin/users/${user.id}/kyc`);
+      setKycDetail(data);
+    } catch (err) {
+      setKycDetailError(err.message);
+    } finally {
+      setKycDetailBusy(false);
+    }
+  };
+
   const toggleUser = async (user) => {
     const next = user.status === 'active' ? 'locked' : 'active';
     if (next === 'locked' && !window.confirm(`Khóa tài khoản ${user.email}?`)) return;
@@ -286,6 +307,7 @@ export function Admin({ tab = 'tong-quan' }) {
             <StatCard label="Khoản tài trợ đã trả" value={stats.paid_pledges} />
             <StatCard label="Báo cáo chờ xử lý" value={stats.open_reports} tone={stats.open_reports ? 'amber' : 'default'} />
             <StatCard label="Dự án chờ duyệt" value={stats.pending_projects} hint="Xem tab Duyệt dự án" />
+            <StatCard label="Dự án tạm ngưng" value={stats.suspended_projects ?? 0} tone={stats.suspended_projects ? 'amber' : 'default'} hint="Chủ dự án bị khóa" />
           </div>
 
           <div className="card p-4">
@@ -336,8 +358,8 @@ export function Admin({ tab = 'tong-quan' }) {
                 </div>
                 {stats.fraud_model && (
                   <div className="mt-2 rounded-xl bg-slate-50 p-2 text-xs text-slate-500">
-                    <b className="text-slate-700">Mô hình gian lận:</b> {stats.fraud_model.project_model} /{' '}
-                    {stats.fraud_model.pledge_model} · ngưỡng cảnh báo {stats.fraud_model.threshold}%.
+                    <b className="text-slate-700">Mô hình gian lận:</b> {modelVersionLabel(stats.fraud_model.project_model, 'Mô hình rủi ro dự án')} /{' '}
+                    {modelVersionLabel(stats.fraud_model.pledge_model, 'Mô hình rủi ro giao dịch')} · ngưỡng cảnh báo {stats.fraud_model.threshold}%.
                     <div className="mt-1">{stats.fraud_model.description}</div>
                   </div>
                 )}
@@ -588,7 +610,12 @@ export function Admin({ tab = 'tong-quan' }) {
                       </span>
                     </td>
                     <td className="p-2">{(roleVi[u.role] || u.role)}</td>
-                    <td className="p-2 text-xs">{kycVi[u.kyc_status]}</td>
+                    <td className="p-2 text-xs">
+                      <div>{kycVi[u.kyc_status] || u.kyc_status}</div>
+                      {u.kyc_status !== 'none' && (
+                        <button className="link mt-1 text-xs" onClick={() => openKyc(u)}>Xem giấy tờ</button>
+                      )}
+                    </td>
                     <td className="p-2">{Math.round(Number(u.trust_score))}</td>
                     <td className="p-2 text-xs text-slate-500">{u.owned_projects} dự án · {u.paid_pledges} tài trợ</td>
                     <td className="p-2">
@@ -664,6 +691,97 @@ export function Admin({ tab = 'tong-quan' }) {
       >
         <p className="text-sm text-slate-600">Dự án <b>{rejectTarget?.title}</b> sẽ chuyển sang trạng thái “Đã dừng”. Chủ dự án sẽ nhận thông báo kèm lý do.</p>
         <textarea className="input" rows="4" placeholder="Lý do từ chối (tối thiểu 5 ký tự)…" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
+      </Modal>
+
+      <Modal
+        open={!!kycTarget}
+        title={`Hồ sơ KYC — ${kycTarget?.full_name || ''}`}
+        onClose={() => setKycTarget(null)}
+        wide
+        footer={
+          <button className="btn-primary text-sm" onClick={() => setKycTarget(null)}>
+            Đóng
+          </button>
+        }
+      >
+        {kycDetailBusy && (
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Spinner className="h-4 w-4" /> Đang tải hồ sơ KYC…
+          </div>
+        )}
+        {kycDetailError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{kycDetailError}</div>
+        )}
+        {kycDetail?.kyc && (
+          <>
+            <div className="grid gap-2 text-sm sm:grid-cols-2">
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Trạng thái</div>
+                <b>{kycVi[kycDetail.kyc.status] || kycDetail.kyc.status}</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Loại giấy tờ</div>
+                <b>{kycDetail.kyc.document_type === 'passport' ? 'Hộ chiếu' : kycDetail.kyc.document_type === 'cccd' ? 'CCCD' : '—'}</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Số giấy tờ</div>
+                <b>{kycDetail.kyc.document_number || '—'}</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Họ tên trên giấy tờ</div>
+                <b>{kycDetail.kyc.full_name || '—'}</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Ngày sinh</div>
+                <b>{kycDetail.kyc.dob ? formatDate(kycDetail.kyc.dob) : '—'}</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Số điện thoại</div>
+                <b>{kycDetail.kyc.phone || '—'}</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Email liên hệ</div>
+                <b className="break-all">{kycDetail.kyc.email || '—'}</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Ngày gửi / xác thực</div>
+                <b>{formatDate(kycDetail.kyc.submitted_at)}{kycDetail.kyc.verified_at ? ` · ${formatDate(kycDetail.kyc.verified_at)}` : ''}</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2 sm:col-span-2">
+                <div className="text-xs text-slate-500">Địa chỉ thường trú</div>
+                <b>{kycDetail.kyc.address || '—'}</b>
+              </div>
+              {kycDetail.kyc.reject_reason && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-2 text-red-700 sm:col-span-2">
+                  <div className="text-xs">Lý do từ chối</div>
+                  <b>{kycDetail.kyc.reject_reason}</b>
+                </div>
+              )}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div>
+                <div className="text-xs font-semibold">Ảnh mặt trước</div>
+                {kycDetail.kyc.front_image ? (
+                  <a href={kycDetail.kyc.front_image} target="_blank" rel="noreferrer">
+                    <img src={kycDetail.kyc.front_image} alt="Mặt trước giấy tờ" className="mt-1 h-44 w-full rounded-xl border object-cover" />
+                  </a>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">Không có ảnh.</p>
+                )}
+              </div>
+              <div>
+                <div className="text-xs font-semibold">Ảnh mặt sau</div>
+                {kycDetail.kyc.back_image ? (
+                  <a href={kycDetail.kyc.back_image} target="_blank" rel="noreferrer">
+                    <img src={kycDetail.kyc.back_image} alt="Mặt sau giấy tờ" className="mt-1 h-44 w-full rounded-xl border object-cover" />
+                  </a>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">Không có ảnh mặt sau.</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </Modal>
     </Shell>
   );

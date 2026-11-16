@@ -48,4 +48,5 @@ export const statusTone = {
   successful: { bg: colors.blueSoft, fg: colors.blue },
   failed: { bg: colors.redSoft, fg: colors.red },
   canceled: { bg: '#e2e8f0', fg: '#475569' },
+  suspended: { bg: '#ffedd5', fg: '#b45309' },
 };

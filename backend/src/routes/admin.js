@@ -3,9 +3,10 @@ import { z } from 'zod';
 import { pool, query, withTransaction } from '../db.js';
 import { ApiError, asyncHandler } from '../lib/errors.js';
 import { parse } from '../lib/validate.js';
-import { mapProject } from '../lib/mappers.js';
+import { mapProject, KYC_COLUMNS, mapKyc } from '../lib/mappers.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 import { notify } from '../services/notifications.js';
+import { lockAccount, unlockAccount } from '../services/account.js';
 import { getFraudModelInfo, getModelCard } from '../services/ai.js';
 
 const router = Router();
@@ -46,6 +47,7 @@ router.get(
         (select count(*) from reports where status = 'open')::int as open_reports,
         (select count(*) from users where status = 'active')::int as active_users,
         (select count(*) from projects where status = 'pending_review')::int as pending_projects,
+        (select count(*) from projects where status = 'suspended')::int as suspended_projects,
         (select count(*) from pledges where status = 'paid')::int as paid_pledges
     `);
 
@@ -340,7 +342,11 @@ router.patch(
     if (body.review_status === 'confirmed') {
       if (flag.entity_type === 'project') {
         const p = await query(
-          `update projects set status = 'canceled' where id = $1 returning title, owner_id`,
+          `update projects
+              set status = 'canceled',
+                  suspended_from_status = null
+            where id = $1
+            returning title, owner_id`,
           [flag.entity_id],
         );
         if (p.rowCount) {
@@ -351,7 +357,10 @@ router.patch(
           });
         }
       } else if (flag.entity_type === 'user') {
-        await query(`update users set status = 'locked' where id = $1`, [flag.entity_id]);
+        await lockAccount(flag.entity_id, {
+          reason: 'AI xác nhận dấu hiệu gian lận.',
+          actorId: req.user.id,
+        });
       } else if (flag.entity_type === 'pledge') {
         await query(`update pledges set status = 'failed' where id = $1`, [flag.entity_id]);
         await query(
@@ -416,6 +425,31 @@ router.get(
   }),
 );
 
+// GET /api/admin/users/:id/kyc — hồ sơ KYC đầy đủ kèm ảnh giấy tờ
+router.get(
+  '/users/:id/kyc',
+  asyncHandler(async (req, res) => {
+    const { rows } = await query(
+      `select id, full_name, email, phone, status, role, ${KYC_COLUMNS}
+         from users where id = $1`,
+      [req.params.id],
+    );
+    if (!rows.length) throw new ApiError(404, 'Không tìm thấy người dùng.');
+    const row = rows[0];
+    res.json({
+      user: {
+        id: row.id,
+        full_name: row.full_name,
+        email: row.email,
+        phone: row.phone || null,
+        role: row.role,
+        account_status: row.status,
+      },
+      kyc: mapKyc(row, { mask: false, includeImages: true }),
+    });
+  }),
+);
+
 router.patch(
   '/users/:id/status',
   asyncHandler(async (req, res) => {
@@ -424,22 +458,26 @@ router.patch(
       throw new ApiError(400, 'Bạn không thể tự khóa tài khoản của mình.');
     }
 
-    const { rows } = await query(
-      `update users set status = $1 where id = $2
-       returning id, full_name, email, role, status`,
-      [body.status, req.params.id],
-    );
-    if (!rows.length) throw new ApiError(404, 'Không tìm thấy người dùng.');
-
     if (body.status === 'locked') {
-      await notify(pool, req.params.id, {
-        type: 'account',
-        content: 'Tài khoản của bạn đã bị tạm khóa bởi quản trị viên.',
-        link: '/dang-nhap',
+      const result = await lockAccount(req.params.id, { actorId: req.user.id });
+      res.json({
+        user: result.user,
+        suspended_projects: result.suspendedProjects,
+        message: result.alreadyLocked
+          ? 'Tài khoản đã ở trạng thái khóa.'
+          : `Đã khóa tài khoản và tạm ngưng ${result.suspendedProjects.length} dự án đang hoạt động.`,
       });
+      return;
     }
 
-    res.json({ user: rows[0], message: body.status === 'locked' ? 'Đã khóa tài khoản.' : 'Đã mở khóa tài khoản.' });
+    const result = await unlockAccount(req.params.id, { actorId: req.user.id });
+    res.json({
+      user: result.user,
+      restored_projects: result.restoredProjects,
+      message: result.alreadyActive
+        ? 'Tài khoản đã ở trạng thái hoạt động.'
+        : `Đã mở khóa tài khoản và khôi phục ${result.restoredProjects.length} dự án.`,
+    });
   }),
 );
 

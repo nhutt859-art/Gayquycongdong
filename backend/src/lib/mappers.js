@@ -3,6 +3,44 @@ export const USER_PUBLIC_COLUMNS = `
   email_verified_at, created_at
 `;
 
+export const KYC_COLUMNS = `
+  kyc_status, kyc_document_type, kyc_document_number, kyc_full_name, kyc_dob,
+  kyc_phone, kyc_contact_email, kyc_address, kyc_document_front_url,
+  kyc_document_back_url, kyc_submitted_at, kyc_verified_at, kyc_reject_reason
+`;
+
+function maskDocumentNumber(value) {
+  const raw = String(value || '').replace(/\s+/g, '');
+  if (!raw) return null;
+  return `••••${raw.slice(-4)}`;
+}
+
+/** Hồ sơ KYC trả về UI. Mặc định che số giấy tờ và không kèm ảnh. */
+export function mapKyc(row, { mask = true, includeImages = false } = {}) {
+  if (!row) return null;
+  const number = row.kyc_document_number || null;
+  const result = {
+    status: row.kyc_status,
+    document_type: row.kyc_document_type || null,
+    document_number: number ? (mask ? maskDocumentNumber(number) : number) : null,
+    full_name: row.kyc_full_name || null,
+    dob: row.kyc_dob || null,
+    phone: row.kyc_phone || null,
+    email: row.kyc_contact_email || null,
+    address: row.kyc_address || null,
+    submitted_at: row.kyc_submitted_at || null,
+    verified_at: row.kyc_verified_at || null,
+    reject_reason: row.kyc_reject_reason || null,
+    has_front_image: Boolean(row.kyc_document_front_url),
+    has_back_image: Boolean(row.kyc_document_back_url),
+  };
+  if (includeImages) {
+    result.front_image = row.kyc_document_front_url || null;
+    result.back_image = row.kyc_document_back_url || null;
+  }
+  return result;
+}
+
 export function mapUser(row) {
   if (!row) return null;
   return {

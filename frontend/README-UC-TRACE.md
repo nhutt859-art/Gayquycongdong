@@ -39,7 +39,7 @@ Mật khẩu chung cho tài khoản thử nghiệm: `12345678`. Chi tiết cấu
 | UC11 Tìm kiếm & lọc | `/kham-pha` | `GET /projects?q=&category=&status=&sort=` | projects, categories |
 | UC12 Đóng chiến dịch | `/quan-ly/:id` (nút Dừng/Đóng) | `POST /projects/:id/close` | projects.status |
 | UC13 Tài trợ | `/du-an/:id` → `/tai-tro/:id` | `POST /projects/:id/pledges` | pledges, projects.current_amount |
-| UC14 Thanh toán mô phỏng | `/tai-tro/:id` bước 2 | `POST /projects/:id/pledges` | transactions |
+| UC14 Tài trợ dự án | `/tai-tro/:id` bước 2 | `POST /projects/:id/pledges` | transactions |
 | UC15 Lịch sử đóng góp | `/ca-nhan` | `GET /me/pledges`, `GET /me/transactions` | pledges, transactions |
 | UC16 Hoàn tiền all-or-nothing | `/ca-nhan` (badge hoàn tiền); `/admin/duyet-du-an` (admin hoàn tiền) | `POST /admin/projects/:id/refund` | pledges.status=refunded, transactions |
 | UC17 Yêu cầu giải ngân | `/quan-ly/:id` tab Tài chính & nhà tài trợ | `POST /projects/:id/payouts` | transactions |
@@ -60,6 +60,6 @@ Mật khẩu chung cho tài khoản thử nghiệm: `12345678`. Chi tiết cấu
 ## Ghi chú
 
 - **AI** dùng logistic regression thật cho dự đoán thành công (6 tín hiệu, kiểm định chéo 5 fold, lưu đóng góp từng tín hiệu), gợi ý dự án dựa trên sở thích + lịch sử tài trợ + lọc cộng tác, và kiểm chứng gian lận dựa trên bằng chứng độc lập. Kết quả lưu vào `ai_predictions`/`ai_recommendations`/`fraud_flags`.
-- **Thanh toán** chỉ mô phỏng: thành công tạo `pledges` + `transactions`; nút “giả lập thất bại” trả lỗi 402 và không cộng tiền.
-- **KYC** mô phỏng tự xác thực ngay khi bấm; không tải giấy tờ thật.
+- **Thanh toán** được ghi nhận qua luồng nội bộ: tạo `pledges` + `transactions` và chấm điểm rủi ro trước khi xác nhận.
+- **KYC** gửi ảnh CCCD/hộ chiếu, đối chiếu OCR số giấy tờ/họ tên/ngày sinh, chống trùng số giấy tờ và xác thực qua email liên hệ.
 - **JWT** lưu `localStorage`; logout chỉ xoá token phía client.

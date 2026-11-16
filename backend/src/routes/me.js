@@ -3,10 +3,13 @@ import { z } from 'zod';
 import { pool, query, withTransaction } from '../db.js';
 import { ApiError, asyncHandler } from '../lib/errors.js';
 import { parse } from '../lib/validate.js';
-import { USER_PUBLIC_COLUMNS, mapProject, mapUser } from '../lib/mappers.js';
+import { USER_PUBLIC_COLUMNS, KYC_COLUMNS, mapProject, mapKyc, mapUser } from '../lib/mappers.js';
 import { requireAuth } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rate-limit.js';
+import { canonicalVietnamesePhone } from '../lib/phone.js';
 import { notify } from '../services/notifications.js';
 import { refreshRecommendations } from '../services/ai.js';
+import { resendKycEmail, submitKyc } from '../services/kyc.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -15,6 +18,18 @@ const updateSchema = z.object({
   full_name: z.string().trim().min(2, 'Họ tên tối thiểu 2 ký tự.').max(120).optional(),
   phone: z.string().trim().max(30).nullable().optional(),
   avatar_url: z.string().trim().max(500).nullable().optional(),
+});
+
+const kycSchema = z.object({
+  full_name: z.string().trim().min(2, 'Họ tên tối thiểu 2 ký tự.').max(120),
+  dob: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày sinh phải có dạng YYYY-MM-DD.'),
+  phone: z.string().trim().min(8, 'Vui lòng nhập số điện thoại.').max(30),
+  email: z.string().trim().email('Email liên hệ không hợp lệ.').max(160),
+  address: z.string().trim().min(5, 'Vui lòng nhập địa chỉ thường trú.').max(300),
+  document_type: z.enum(['cccd', 'passport'], { message: 'Chỉ chấp nhận CCCD hoặc hộ chiếu.' }),
+  document_number: z.string().trim().min(5, 'Số giấy tờ tối thiểu 5 ký tự.').max(30),
+  front_image: z.string().min(50, 'Vui lòng tải ảnh mặt trước giấy tờ.'),
+  back_image: z.string().min(50).nullable().optional(),
 });
 
 const interestsSchema = z.object({
@@ -39,8 +54,10 @@ router.get(
          (select coalesce(sum(amount), 0) from pledges where backer_id = $1 and status = 'paid')::numeric as total_pledged`,
       [req.user.id],
     );
+    const kyc = await query(`select ${KYC_COLUMNS} from users where id = $1`, [req.user.id]);
     res.json({
       user: req.user,
+      kyc: mapKyc(kyc.rows[0]),
       interests: interests.rows.map((r) => ({ ...r, weight: Number(r.weight) })),
       stats: stats.rows[0],
     });
@@ -52,6 +69,22 @@ router.patch(
   '/',
   asyncHandler(async (req, res) => {
     const body = parse(updateSchema, req.body);
+
+    if (body.phone !== undefined) {
+      if (body.phone === null || body.phone === '') {
+        body.phone = null;
+      } else {
+        const phone = canonicalVietnamesePhone(body.phone);
+        if (!phone) {
+          throw new ApiError(400, 'Số điện thoại không hợp lệ. Dùng số di động Việt Nam 10 số (03/05/07/08/09) hoặc số cố định 11 số (02x).', {
+            code: 'INVALID_PHONE',
+            field: 'phone',
+          });
+        }
+        body.phone = phone;
+      }
+    }
+
     const { rows } = await query(
       `update users
           set full_name = coalesce($1, full_name),
@@ -65,27 +98,24 @@ router.patch(
   }),
 );
 
-// POST /api/me/kyc — KYC mô phỏng: duyệt tự động ngay lập tức
+// POST /api/me/kyc — gửi hồ sơ CCCD/hộ chiếu, OCR đối chiếu và gửi email xác thực
 router.post(
   '/kyc',
+  rateLimit({ name: 'kyc-submit-user', max: 10, key: (req) => req.user?.id }),
   asyncHandler(async (req, res) => {
-    if (req.user.kyc_status === 'verified') {
-      return res.json({ user: req.user, message: 'Tài khoản đã được xác thực.' });
-    }
-    const { rows } = await query(
-      `update users
-          set kyc_status = 'verified',
-              trust_score = least(100, trust_score + 5)
-        where id = $1
-        returning ${USER_PUBLIC_COLUMNS}`,
-      [req.user.id],
-    );
-    await notify(pool, req.user.id, {
-      type: 'success',
-      content: 'Xác thực danh tính thành công. Bạn đã có thể tạo dự án gây quỹ.',
-      link: '/ca-nhan',
-    });
-    res.json({ user: mapUser(rows[0]), message: 'Xác thực danh tính thành công.' });
+    const body = parse(kycSchema, req.body);
+    const result = await submitKyc(req.user.id, body);
+    res.json(result);
+  }),
+);
+
+// POST /api/me/kyc/resend — gửi lại email xác thực hồ sơ KYC
+router.post(
+  '/kyc/resend',
+  rateLimit({ name: 'kyc-resend-user', max: 5, key: (req) => req.user?.id }),
+  asyncHandler(async (req, res) => {
+    const result = await resendKycEmail(req.user.id);
+    res.json(result);
   }),
 );
 
@@ -172,6 +202,20 @@ router.get(
 router.post(
   '/invitations/:projectId/accept',
   asyncHandler(async (req, res) => {
+    const project = await query(
+      `select p.title, p.owner_id, p.status
+         from project_collaborators pc
+         join projects p on p.id = pc.project_id
+        where pc.project_id = $1 and pc.user_id = $2 and pc.accepted_at is null`,
+      [req.params.projectId, req.user.id],
+    );
+    if (!project.rows[0]) throw new ApiError(404, 'Lời mời không tồn tại hoặc đã được xử lý.');
+    if (project.rows[0].status === 'suspended') {
+      throw new ApiError(409, 'Dự án đang tạm ngưng vì chủ dự án bị khóa tài khoản. Bạn chưa thể nhận lời mời cộng tác lúc này.', {
+        code: 'PROJECT_SUSPENDED',
+      });
+    }
+
     const { rows } = await query(
       `update project_collaborators
           set accepted_at = now()
@@ -181,7 +225,6 @@ router.post(
     );
     if (!rows.length) throw new ApiError(404, 'Lời mời không tồn tại hoặc đã được xử lý.');
 
-    const project = await query('select title, owner_id from projects where id = $1', [req.params.projectId]);
     await notify(pool, project.rows[0].owner_id, {
       type: 'collab',
       content: `${req.user.full_name} đã chấp nhận lời mời cộng tác dự án “${project.rows[0].title}”.`,

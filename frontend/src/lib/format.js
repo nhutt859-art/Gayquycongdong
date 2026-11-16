@@ -5,6 +5,7 @@ export const statusVi = {
   successful: 'Thành công',
   failed: 'Thất bại',
   canceled: 'Đã dừng',
+  suspended: 'Tạm ngưng',
 };
 
 export const pledgeStatusVi = {
@@ -107,4 +108,20 @@ export function addDaysISO(days) {
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+/** Nhãn thân thiện cho phiên bản mô hình; không hiển thị mã kỹ thuật nội bộ. */
+export function modelVersionLabel(version, fallback = '') {
+  if (!version) return fallback;
+  const raw = String(version).trim();
+  const success = raw.match(/success-model-v?([\d.]+)/i);
+  if (success) return `Mô hình dự đoán thành công v${success[1]}`;
+  if (/logreg/i.test(raw)) return 'Mô hình dự đoán thành công (bản ổn định)';
+  const fraud = raw.match(/fraud-(project|pledge)-v?([\d.]+)/i);
+  if (fraud) {
+    return fraud[1] === 'project'
+      ? `Mô hình rủi ro dự án v${fraud[2]}`
+      : `Mô hình rủi ro giao dịch v${fraud[2]}`;
+  }
+  return raw;
 }

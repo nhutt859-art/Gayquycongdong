@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import {
+  asArray,
   daysLeft,
   formatDate,
   formatDateTime,
@@ -12,11 +13,13 @@ import {
   transactionStatusVi,
   vnd,
 } from '../lib/format';
+import { pickContentImages } from '../lib/images';
 import { colors } from '../theme';
 import {
   Badge,
   Button,
   Card,
+  ContentImages,
   EmptyState,
   ErrorState,
   FraudRiskCard,
@@ -42,7 +45,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export default function ManageProjectScreen({ navigation, route }) {
   const { id } = route.params;
-  const { categories, toast, refreshSession } = useApp();
+  const { categories, currentUser, toast, refreshSession } = useApp();
   const [project, setProject] = useState(null);
   const [pledges, setPledges] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,6 +55,8 @@ export default function ManageProjectScreen({ navigation, route }) {
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState('');
   const [updateForm, setUpdateForm] = useState({ title: '', content: '' });
+  const [updateImages, setUpdateImages] = useState([]);
+  const [updateImageBusy, setUpdateImageBusy] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [rewardForm, setRewardForm] = useState({ title: '', description: '', min_amount: '100000', quantity_available: '100' });
   const [rewardBusy, setRewardBusy] = useState(false);
@@ -149,6 +154,23 @@ export default function ManageProjectScreen({ navigation, route }) {
     }
   };
 
+  const addUpdateImages = async () => {
+    const room = 6 - updateImages.length;
+    if (room <= 0) {
+      toast('Mỗi bản tin tối đa 6 ảnh.', 'warning');
+      return;
+    }
+    setUpdateImageBusy(true);
+    try {
+      const images = await pickContentImages(room);
+      if (images.length) setUpdateImages((list) => [...list, ...images].slice(0, 6));
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setUpdateImageBusy(false);
+    }
+  };
+
   const postUpdate = async () => {
     if (updateForm.title.trim().length < 3 || updateForm.content.trim().length < 10) {
       toast('Tiêu đề tối thiểu 3 ký tự và nội dung tối thiểu 10 ký tự.', 'warning');
@@ -159,9 +181,11 @@ export default function ManageProjectScreen({ navigation, route }) {
       const data = await api.post(`/projects/${id}/updates`, {
         title: updateForm.title.trim(),
         content: updateForm.content.trim(),
+        image_urls: updateImages,
       });
       setProject((p) => ({ ...p, updates: [data.update, ...p.updates] }));
       setUpdateForm({ title: '', content: '' });
+      setUpdateImages([]);
       toast('Đã đăng bản tin, người theo dõi sẽ nhận thông báo.', 'success');
     } catch (err) {
       toast(err.message, 'error');
@@ -230,7 +254,7 @@ export default function ManageProjectScreen({ navigation, route }) {
   const removeCollaborator = (userId) => {
     confirmAction(
       'Mời cộng tác viên ra?',
-      'Cộng tác viên này sẽ không còn quyền quản lý dự án. Quản trị viên và nhà tài trợ sẽ được thông báo.',
+      'Cộng tác viên này sẽ không còn quyền quản lý dự án. Chủ dự án, các cộng tác viên còn lại, quản trị viên và nhà tài trợ sẽ được thông báo.',
       async () => {
         try {
           await api.del(`/projects/${id}/collaborators/${userId}`);
@@ -246,7 +270,7 @@ export default function ManageProjectScreen({ navigation, route }) {
   const leaveProject = () => {
     confirmAction(
       'Rời dự án?',
-      'Bạn có chắc chắn muốn rời dự án này? Chủ dự án, quản trị viên và nhà tài trợ sẽ được thông báo.',
+      'Bạn có chắc chắn muốn rời dự án này? Chủ dự án, các cộng tác viên còn lại, quản trị viên và nhà tài trợ sẽ được thông báo.',
       async () => {
         setLeaveBusy(true);
         try {
@@ -322,6 +346,86 @@ export default function ManageProjectScreen({ navigation, route }) {
             style={{ marginTop: 14, width: '100%' }}
           />
         </Card>
+      </Screen>
+    );
+  }
+
+  if (project.status === 'suspended' && currentUser?.role !== 'admin') {
+    return (
+      <Screen>
+        <Card style={{ padding: 12, marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+            <ProjectCover project={project} height={70} style={{ width: 100, marginRight: 10 }} />
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                <StatusBadge status={project.status} />
+                <Badge
+                  label={isOwner ? 'Chủ dự án' : 'Cộng tác viên'}
+                  tone="indigo"
+                  style={{ marginLeft: 5 }}
+                />
+              </View>
+              <Text style={{ fontWeight: '800', fontSize: 14, marginTop: 5 }} numberOfLines={2}>
+                {project.title}
+              </Text>
+              <Text style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                {vnd(project.current_amount)} / {vnd(project.goal_amount)}
+              </Text>
+            </View>
+          </View>
+        </Card>
+
+        <Card style={{ padding: 16, borderColor: '#fdba74', backgroundColor: '#fff7ed', marginBottom: 10 }}>
+          <Text style={{ fontWeight: '900', fontSize: 15, color: '#9a3412' }}>⏸ Dự án đang tạm ngưng</Text>
+          <Text style={{ fontSize: 12, color: '#9a3412', lineHeight: 18, marginTop: 5 }}>
+            Chủ dự án bị khóa tài khoản. Toàn bộ thao tác quản lý đang tạm khóa, bao gồm chỉnh sửa thông tin, đăng bản tin,
+            thay đổi gói tri ân, mời hoặc mời ra cộng tác viên, giải ngân và đóng chiến dịch.
+          </Text>
+          <Text style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
+            Các thao tác sẽ được mở lại khi quản trị viên mở khóa tài khoản chủ dự án.
+          </Text>
+        </Card>
+
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10 }}>
+          <View style={{ width: '50%', padding: 3 }}>
+            <View style={{ backgroundColor: colors.white, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 10 }}>
+              <Text style={{ fontSize: 10, color: colors.muted }}>Đã huy động</Text>
+              <Text style={{ fontSize: 16, fontWeight: '900', color: colors.primary, marginTop: 2 }}>
+                {vnd(project.current_amount)}
+              </Text>
+            </View>
+          </View>
+          <View style={{ width: '50%', padding: 3 }}>
+            <View style={{ backgroundColor: colors.white, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 10 }}>
+              <Text style={{ fontSize: 10, color: colors.muted }}>Mục tiêu</Text>
+              <Text style={{ fontSize: 16, fontWeight: '900', marginTop: 2 }}>{vnd(project.goal_amount)}</Text>
+            </View>
+          </View>
+          <View style={{ width: '50%', padding: 3 }}>
+            <View style={{ backgroundColor: colors.white, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 10 }}>
+              <Text style={{ fontSize: 10, color: colors.muted }}>Nhà tài trợ</Text>
+              <Text style={{ fontSize: 16, fontWeight: '900', marginTop: 2 }}>{project.backer_count || 0}</Text>
+            </View>
+          </View>
+          <View style={{ width: '50%', padding: 3 }}>
+            <View style={{ backgroundColor: colors.white, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 10 }}>
+              <Text style={{ fontSize: 10, color: colors.muted }}>Theo dõi</Text>
+              <Text style={{ fontSize: 16, fontWeight: '900', marginTop: 2 }}>{project.follower_count || 0}</Text>
+            </View>
+          </View>
+        </View>
+
+        <Button
+          title="Xem trang dự án"
+          icon="eye-outline"
+          onPress={() => navigation.navigate('ProjectDetail', { id })}
+        />
+        <Button
+          title="Về danh sách dự án của tôi"
+          variant="ghost"
+          onPress={() => navigation.navigate('MyProjects')}
+          style={{ marginTop: 8 }}
+        />
       </Screen>
     );
   }
@@ -476,6 +580,23 @@ export default function ManageProjectScreen({ navigation, route }) {
               onChangeText={(v) => setUpdateForm((f) => ({ ...f, content: v }))}
               multiline
             />
+
+            <Text style={{ fontSize: 11, fontWeight: '800', color: '#334155', marginBottom: 4 }}>
+              Ảnh đính kèm ({updateImages.length}/6)
+            </Text>
+            <ContentImages
+              images={updateImages}
+              onRemove={(index) => setUpdateImages((list) => list.filter((_, i) => i !== index))}
+            />
+            <Button
+              title="Thêm ảnh tiến độ"
+              variant="soft"
+              icon="image-outline"
+              loading={updateImageBusy}
+              disabled={updateImages.length >= 6}
+              onPress={addUpdateImages}
+              style={{ marginBottom: 10 }}
+            />
             <Button title="Đăng bản tin" onPress={postUpdate} loading={updateBusy} />
           </Card>
           <SectionHeader title="Bản tin đã đăng" subtitle={`${project.updates?.length || 0} bản tin`} />
@@ -487,6 +608,7 @@ export default function ManageProjectScreen({ navigation, route }) {
                 <Text style={{ fontWeight: '800' }}>{u.title}</Text>
                 <Text style={{ fontSize: 10, color: colors.soft, marginTop: 2 }}>{formatDateTime(u.created_at)}</Text>
                 <Text style={{ fontSize: 12, color: '#334155', marginTop: 5, lineHeight: 18 }}>{u.content}</Text>
+                <ContentImages images={asArray(u.image_urls)} />
               </Card>
             ))
           )}
@@ -618,7 +740,8 @@ export default function ManageProjectScreen({ navigation, route }) {
             <Card style={{ padding: 14, marginTop: 8, borderColor: '#fecaca' }}>
               <Text style={{ fontWeight: '800', fontSize: 14, color: colors.red }}>Rời dự án cộng tác</Text>
               <Text style={{ fontSize: 11, color: colors.muted, marginTop: 4, lineHeight: 17 }}>
-                Khi bạn rời dự án, chủ dự án, quản trị viên và toàn bộ nhà tài trợ sẽ nhận được thông báo.
+                Khi bạn rời dự án, chủ dự án, các cộng tác viên còn lại, quản trị viên và toàn bộ nhà tài trợ sẽ nhận được
+                thông báo.
               </Text>
               <Button
                 title="Rời dự án"

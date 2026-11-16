@@ -193,12 +193,25 @@ export default function CreateProjectScreen({ navigation, route }) {
           <Text style={{ fontSize: 42 }}>🪪</Text>
           <Text style={{ fontSize: 18, fontWeight: '900', marginTop: 8 }}>Cần xác thực danh tính</Text>
           <Text style={{ fontSize: 12, color: colors.muted, textAlign: 'center', marginTop: 5, lineHeight: 18 }}>
-            Bạn cần xác thực danh tính (KYC mô phỏng) trước khi tạo dự án gây quỹ.
+            Bạn cần xác thực danh tính bằng CCCD hoặc hộ chiếu trước khi tạo dự án gây quỹ. Hồ sơ được đối chiếu OCR và xác
+            thực qua email liên hệ.
           </Text>
+          {currentUser.kyc_status === 'pending' ? (
+            <Text style={{ fontSize: 11, color: colors.amber, textAlign: 'center', marginTop: 6, lineHeight: 16 }}>
+              Hồ sơ KYC đang chờ xác thực email. Mở liên kết trong email đã gửi hoặc vào trang KYC để gửi lại.
+            </Text>
+          ) : null}
           <Button
-            title="Đến trang cá nhân"
-            onPress={() => navigation.navigate('MainTabs', { screen: 'ProfileTab' })}
+            title={currentUser.kyc_status === 'pending' ? 'Tiếp tục xác thực danh tính' : 'Xác thực danh tính ngay'}
+            icon="id-card-outline"
+            onPress={() => navigation.navigate('Kyc')}
             style={{ marginTop: 14, width: '100%' }}
+          />
+          <Button
+            title="Về trang cá nhân"
+            variant="ghost"
+            onPress={() => navigation.navigate('MainTabs', { screen: 'ProfileTab' })}
+            style={{ marginTop: 8, width: '100%' }}
           />
         </Card>
       </Screen>

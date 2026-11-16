@@ -8,6 +8,7 @@ import {
   formatDate,
   formatDateTime,
   kycVi,
+  modelVersionLabel,
   roleVi,
   transactionStatusVi,
   vnd,
@@ -321,6 +322,12 @@ export default function AdminScreen({ navigation, route }) {
               ['Khoản tài trợ đã trả', String(stats.paid_pledges), '', colors.text],
               ['Báo cáo chờ xử lý', String(stats.open_reports), '', stats.open_reports ? colors.amber : colors.text],
               ['Dự án chờ duyệt', String(stats.pending_projects), 'Xem tab Duyệt dự án', colors.text],
+              [
+                'Dự án tạm ngưng',
+                String(stats.suspended_projects ?? 0),
+                'Chủ dự án bị khóa',
+                stats.suspended_projects ? colors.amber : colors.text,
+              ],
             ].map(([label, value, hint, tone]) => (
               <View key={label} style={{ width: '50%', padding: 3 }}>
                 <StatTile label={label} value={value} hint={hint} tone={tone} />
@@ -385,7 +392,8 @@ export default function AdminScreen({ navigation, route }) {
             {stats.fraud_model ? (
               <View style={{ backgroundColor: colors.slateSoft, borderRadius: 10, padding: 9, marginTop: 8 }}>
                 <Text style={{ fontSize: 10, color: colors.muted }}>
-                  Mô hình gian lận: {stats.fraud_model.project_model} / {stats.fraud_model.pledge_model} · ngưỡng{' '}
+                  Mô hình gian lận: {modelVersionLabel(stats.fraud_model.project_model, 'Mô hình rủi ro dự án')} /{' '}
+                  {modelVersionLabel(stats.fraud_model.pledge_model, 'Mô hình rủi ro giao dịch')} · ngưỡng{' '}
                   {stats.fraud_model.threshold}%
                 </Text>
               </View>
@@ -393,8 +401,11 @@ export default function AdminScreen({ navigation, route }) {
             {stats.ai_model ? (
               <View style={{ backgroundColor: colors.indigoSoft, borderRadius: 10, padding: 9, marginTop: 6 }}>
                 <Text style={{ fontSize: 10, color: colors.indigo }}>
-                  AI: {stats.ai_model.version} · AUC {stats.ai_model.metrics?.auc ?? '—'} · Accuracy{' '}
-                  {stats.ai_model.metrics?.accuracy ?? '—'}
+                  AI: {modelVersionLabel(stats.ai_model.version, 'Mô hình dự đoán thành công')} · AUC{' '}
+                  {stats.ai_model.metrics?.auc ?? '—'} · Accuracy {stats.ai_model.metrics?.accuracy ?? '—'}
+                </Text>
+                <Text style={{ fontSize: 9, color: colors.muted, marginTop: 3, lineHeight: 14 }}>
+                  Mô hình được huấn luyện trên dữ liệu dự án đã kết thúc và kiểm định chéo 5 fold trước khi đưa vào sử dụng.
                 </Text>
               </View>
             ) : null}
@@ -602,7 +613,7 @@ export default function AdminScreen({ navigation, route }) {
                 <Card style={{ padding: 10 }}>
                   <Text style={{ fontSize: 11, color: colors.muted }}>
                     {f.entity_type === 'user' ? 'Người dùng' : f.entity_type === 'project' ? 'Dự án' : 'Giao dịch'} ·{' '}
-                    {formatDateTime(f.flagged_at)} · {f.model_version}
+                    {formatDateTime(f.flagged_at)} · {modelVersionLabel(f.model_version, 'Mô hình rủi ro')}
                   </Text>
                   {f.review_status === 'pending' ? (
                     <View style={{ flexDirection: 'row', marginTop: 8 }}>

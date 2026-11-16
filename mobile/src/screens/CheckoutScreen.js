@@ -31,7 +31,6 @@ export default function CheckoutScreen({ navigation, route }) {
   const [amount, setAmount] = useState(String(MIN_AMOUNT));
   const [method, setMethod] = useState('VNPay');
   const [anonymous, setAnonymous] = useState(false);
-  const [simulateFailure, setSimulateFailure] = useState(false);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -96,7 +95,7 @@ export default function CheckoutScreen({ navigation, route }) {
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Text style={{ fontSize: 12, color: colors.muted }}>Trạng thái</Text>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>Đã thanh toán (mô phỏng)</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>Đã thanh toán</Text>
             </View>
           </View>
           <View style={{ flexDirection: 'row', marginTop: 14, width: '100%' }}>
@@ -152,7 +151,6 @@ export default function CheckoutScreen({ navigation, route }) {
         reward_id: preset?.id || null,
         is_anonymous: anonymous,
         method,
-        simulate_failure: simulateFailure,
       });
       setResult(data);
       setStep(3);
@@ -215,9 +213,11 @@ export default function CheckoutScreen({ navigation, route }) {
                 ? ' vì đang dùng tài khoản quản trị.'
                 : project.owner_id === currentUser?.id
                   ? ' vì đây là dự án của bạn.'
-                  : project.status !== 'active'
-                    ? ' vì dự án không ở trạng thái đang gây quỹ.'
-                    : ' vì chiến dịch đã kết thúc.'}
+                  : project.status === 'suspended'
+                    ? ' vì dự án đang tạm ngưng do chủ dự án bị khóa tài khoản.'
+                    : project.status !== 'active'
+                      ? ' vì dự án không ở trạng thái đang gây quỹ.'
+                      : ' vì chiến dịch đã kết thúc.'}
             </Text>
           </View>
         ) : null}
@@ -351,20 +351,6 @@ export default function CheckoutScreen({ navigation, route }) {
                   : ' Hệ thống ghi nhận giao dịch và cập nhật tiến độ dự án ngay lập tức.'}
               </Text>
             </AIBox>
-
-            <Pressable
-              onPress={() => setSimulateFailure((v) => !v)}
-              style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}
-            >
-              <Ionicons
-                name={simulateFailure ? 'checkbox' : 'square-outline'}
-                size={20}
-                color={simulateFailure ? colors.red : colors.soft}
-              />
-              <Text style={{ fontSize: 12, color: '#334155', marginLeft: 6, flex: 1 }}>
-                Giả lập thanh toán thất bại (để kiểm thử)
-              </Text>
-            </Pressable>
 
             <View style={{ flexDirection: 'row', marginTop: 12 }}>
               <Button

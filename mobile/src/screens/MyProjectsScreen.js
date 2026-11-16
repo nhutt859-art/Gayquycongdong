@@ -32,6 +32,11 @@ function ProjectRow({ project, onOpen, onManage, role }) {
             {role ? <Badge label={role} tone="indigo" style={{ marginLeft: 5 }} /> : null}
             <Badge label={vnd(project.current_amount)} tone="emerald" style={{ marginLeft: 5 }} />
           </View>
+          {project.status === 'suspended' ? (
+            <Text style={{ fontSize: 10, color: '#b45309', marginTop: 4 }}>
+              Dự án tạm ngưng do tài khoản chủ dự án bị khóa.
+            </Text>
+          ) : null}
         </View>
       </View>
       <View style={{ flexDirection: 'row', marginTop: 8 }}>

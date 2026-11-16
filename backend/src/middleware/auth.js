@@ -52,7 +52,11 @@ export async function requireAuth(req, _res, next) {
 
     const user = await findUserById(payload.sub);
     if (!user) throw new ApiError(401, 'Tài khoản không tồn tại.');
-    if (user.status === 'locked') throw new ApiError(403, 'Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.');
+    if (user.status === 'locked') {
+      throw new ApiError(403, 'Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.', {
+        code: 'ACCOUNT_LOCKED',
+      });
+    }
     assertTokenVersion(payload, user);
 
     req.user = user;

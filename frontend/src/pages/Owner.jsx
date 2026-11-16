@@ -24,6 +24,7 @@ import {
   transactionStatusVi,
   vnd,
 } from '../lib/format';
+import { parseImageList, readImageFile } from '../lib/images';
 
 // UC06 mời collaborator + UC07 chấp nhận + UC08 sửa/cập nhật + UC12 đóng chiến dịch
 // UC17 payout request + UC20 đăng bản tin
@@ -134,6 +135,9 @@ export function MyProjects() {
                   <span className="text-xs text-slate-500">{daysLeft(p.end_date)}</span>
                   <span className="text-xs text-slate-500">{p.backer_count || 0} nhà tài trợ · {p.reward_count || 0} gói</span>
                 </div>
+                {p.status === 'suspended' && (
+                  <p className="mt-1 text-xs text-orange-700">Dự án đang tạm ngưng do tài khoản chủ dự án bị khóa.</p>
+                )}
                 <div className="mt-2 max-w-md"><Progress project={p} compact /></div>
               </div>
               <div className="flex gap-2">
@@ -159,6 +163,9 @@ export function MyProjects() {
                     {p.collab_role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'}
                   </span>
                 </div>
+                {p.status === 'suspended' && (
+                  <p className="mt-1 text-xs text-orange-700">Chủ dự án bị khóa tài khoản — mọi thao tác quản lý đang tạm dừng.</p>
+                )}
                 <div className="mt-2 max-w-md"><Progress project={p} compact /></div>
               </div>
               <Link to={`/quan-ly/${p.id}`} className="btn-primary text-sm">Quản lý</Link>
@@ -190,8 +197,9 @@ export function ManageProject() {
   const [form, setForm] = useState(null);
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState('');
-  const [updateForm, setUpdateForm] = useState({ title: '', content: '' });
+  const [updateForm, setUpdateForm] = useState({ title: '', content: '', images: [] });
   const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateImageBusy, setUpdateImageBusy] = useState(false);
   const [rewardForm, setRewardForm] = useState({ title: '', description: '', min_amount: '100000', quantity_available: '100' });
   const [rewardBusy, setRewardBusy] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'editor' });
@@ -250,6 +258,42 @@ export function ManageProject() {
     );
   }
 
+  if (project.status === 'suspended') {
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title={project.title}
+          subtitle="Dự án đang tạm ngưng"
+          action={
+            <div className="flex flex-wrap items-center gap-2">
+              <Link to={`/du-an/${project.id}`} className="btn-ghost text-sm">Xem công khai</Link>
+              <StatusBadge status={project.status} />
+            </div>
+          }
+        />
+        <div className="card border-orange-300 bg-orange-50 p-5">
+          <h2 className="font-bold text-orange-800">Tạm ngưng do chủ dự án bị khóa tài khoản</h2>
+          <p className="mt-1 text-sm text-orange-800">
+            Toàn bộ thao tác quản lý dự án đang tạm khóa, bao gồm chỉnh sửa thông tin, đăng bản tin, thay đổi gói tri ân,
+            mời hoặc mời ra cộng tác viên, giải ngân và đóng chiến dịch. Bạn vẫn có thể xem dữ liệu và trang công khai của dự án.
+          </p>
+          <p className="mt-2 text-xs text-orange-700">
+            Các thao tác sẽ được mở lại khi quản trị viên mở khóa tài khoản chủ dự án.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link to={`/du-an/${project.id}`} className="btn-primary text-sm">Xem trang dự án</Link>
+            <Link to="/du-an-cua-toi" className="btn-ghost text-sm">← Về danh sách của tôi</Link>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="card p-4"><div className="text-xs text-slate-500">Đã huy động</div><div className="text-2xl font-bold text-emerald-700">{vnd(project.current_amount)}</div></div>
+          <div className="card p-4"><div className="text-xs text-slate-500">Mục tiêu</div><div className="text-2xl font-bold">{vnd(project.goal_amount)}</div></div>
+          <div className="card p-4"><div className="text-xs text-slate-500">Nhà tài trợ</div><div className="text-2xl font-bold">{project.backer_count}</div></div>
+        </div>
+      </div>
+    );
+  }
+
   const isOwner = project.my_role === 'owner';
   const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -302,6 +346,31 @@ export function ManageProject() {
     }
   };
 
+  const pickUpdateImages = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    const room = 6 - updateForm.images.length;
+    if (room <= 0) {
+      toast('Mỗi bản tin chỉ đính kèm tối đa 6 ảnh.', 'warning');
+      return;
+    }
+    setUpdateImageBusy(true);
+    try {
+      const added = [];
+      for (const file of files.slice(0, room)) {
+        const { dataUrl } = await readImageFile(file, { maxBytes: 2 * 1024 * 1024, maxWidth: 1600, maxHeight: 1600 });
+        added.push(dataUrl);
+      }
+      setUpdateForm((value) => ({ ...value, images: [...value.images, ...added] }));
+      if (files.length > room) toast(`Chỉ thêm được ${room} ảnh để đủ giới hạn 6 ảnh.`, 'warning');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setUpdateImageBusy(false);
+    }
+  };
+
   const postUpdate = async (e) => {
     e?.preventDefault();
     if (updateForm.title.trim().length < 3 || updateForm.content.trim().length < 10) {
@@ -313,9 +382,10 @@ export function ManageProject() {
       const data = await api.post(`/projects/${id}/updates`, {
         title: updateForm.title.trim(),
         content: updateForm.content.trim(),
+        image_urls: updateForm.images,
       });
       setProject((p) => ({ ...p, updates: [data.update, ...p.updates] }));
-      setUpdateForm({ title: '', content: '' });
+      setUpdateForm({ title: '', content: '', images: [] });
       toast('Đã đăng bản tin, người theo dõi sẽ nhận thông báo.', 'success');
     } catch (err) {
       toast(err.message, 'error');
@@ -383,7 +453,7 @@ export function ManageProject() {
   };
 
   const removeCollaborator = async (userId) => {
-    if (!window.confirm('Mời cộng tác viên này ra khỏi dự án? Quản trị viên và nhà tài trợ sẽ được thông báo.')) return;
+    if (!window.confirm('Mời cộng tác viên này ra khỏi dự án? Chủ dự án, các cộng tác viên còn lại, quản trị viên và nhà tài trợ sẽ được thông báo.')) return;
     try {
       await api.del(`/projects/${id}/collaborators/${userId}`);
       setProject((p) => ({ ...p, collaborators: p.collaborators.filter((c) => c.user_id !== userId) }));
@@ -394,7 +464,7 @@ export function ManageProject() {
   };
 
   const leaveProject = async () => {
-    if (!window.confirm('Bạn có chắc chắn muốn rời dự án này? Chủ dự án, quản trị viên và nhà tài trợ sẽ được thông báo.')) return;
+    if (!window.confirm('Bạn có chắc chắn muốn rời dự án này? Chủ dự án, các cộng tác viên còn lại, quản trị viên và nhà tài trợ sẽ được thông báo.')) return;
     setLeaveBusy(true);
     try {
       const data = await api.del(`/projects/${id}/collaborators/me`);
@@ -594,7 +664,37 @@ export function ManageProject() {
               <label className="text-xs font-semibold">Nội dung</label>
               <textarea className="input mt-1" rows="5" placeholder="Cập nhật kết quả, hình ảnh, cảm ơn nhà tài trợ…" value={updateForm.content} onChange={(e) => setUpdateForm({ ...updateForm, content: e.target.value })} />
             </div>
-            <button className="btn-primary w-full text-sm disabled:opacity-60" type="submit" disabled={updateBusy}>
+            <div>
+              <label className="text-xs font-semibold">Hình ảnh đính kèm (tối đa 6)</label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                multiple
+                className="input mt-1 text-xs"
+                onChange={pickUpdateImages}
+                disabled={updateImageBusy || updateForm.images.length >= 6}
+              />
+              {updateImageBusy && <p className="mt-1 text-xs text-slate-500"><Spinner className="mr-1 h-3 w-3" /> Đang nén ảnh…</p>}
+              {updateForm.images.length > 0 && (
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {updateForm.images.map((src, index) => (
+                    <div key={`${index}-${src.slice(-16)}`} className="relative">
+                      <img src={src} alt={`Ảnh đính kèm ${index + 1}`} className="h-20 w-full rounded-lg border object-cover" />
+                      <button
+                        type="button"
+                        className="absolute right-1 top-1 rounded-full bg-white/95 px-1.5 text-xs font-bold text-red-600 shadow"
+                        onClick={() => setUpdateForm((value) => ({ ...value, images: value.images.filter((_, i) => i !== index) }))}
+                        aria-label="Xóa ảnh"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="mt-1 text-[11px] text-slate-500">Ảnh JPEG/PNG, tự động nén tối đa 2MB mỗi ảnh.</p>
+            </div>
+            <button className="btn-primary w-full text-sm disabled:opacity-60" type="submit" disabled={updateBusy || updateImageBusy}>
               {updateBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang đăng…</> : 'Đăng bản tin'}
             </button>
             <p className="text-xs text-slate-500">Người theo dõi, nhà tài trợ và cộng tác viên sẽ nhận thông báo.</p>
@@ -603,13 +703,25 @@ export function ManageProject() {
           <div className="card space-y-2 p-5 md:col-span-2">
             <h2 className="font-bold">Bản tin đã đăng ({project.updates.length})</h2>
             {project.updates.length === 0 && <p className="text-sm text-slate-500">Chưa có bản tin nào.</p>}
-            {project.updates.map((u) => (
-              <div key={u.id} className="rounded-xl border border-slate-200 p-3">
-                <b>{u.title}</b>
-                <p className="mt-1 whitespace-pre-line text-sm text-slate-600">{u.content}</p>
-                <div className="mt-1 text-xs text-slate-400">{u.author_name || 'Ban tổ chức'} · {formatDateTime(u.created_at)}</div>
-              </div>
-            ))}
+            {project.updates.map((u) => {
+              const images = parseImageList(u.image_urls);
+              return (
+                <div key={u.id} className="rounded-xl border border-slate-200 p-3">
+                  <b>{u.title}</b>
+                  <p className="mt-1 whitespace-pre-line text-sm text-slate-600">{u.content}</p>
+                  {images.length > 0 && (
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {images.map((src, index) => (
+                        <a key={`${u.id}-${index}`} href={src} target="_blank" rel="noreferrer">
+                          <img src={src} alt={`${u.title} - ảnh ${index + 1}`} className="h-24 w-full rounded-lg border object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-2 text-xs text-slate-400">{u.author_name || 'Ban tổ chức'} · {formatDateTime(u.created_at)}</div>
+                </div>
+              );
+            })}
             <div className="border-t pt-3">
               <h3 className="text-sm font-bold">Bình luận gần đây ({project.comments.length})</h3>
               {project.comments.slice(-5).reverse().map((c) => (

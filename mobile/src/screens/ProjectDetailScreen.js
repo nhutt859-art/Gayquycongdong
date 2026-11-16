@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
-import { daysLeft, formatDate, timeAgo, vnd } from '../lib/format';
+import { asArray, daysLeft, formatDate, timeAgo, vnd } from '../lib/format';
 import { colors, radius } from '../theme';
 import {
   AIBox,
@@ -12,6 +12,7 @@ import {
   Button,
   Card,
   Chip,
+  ContentImages,
   EmptyState,
   ErrorState,
   FraudRiskCard,
@@ -223,6 +224,7 @@ export default function ProjectDetailScreen({ navigation, route }) {
   if (!currentUser) donateMessage = 'Đăng nhập để tài trợ dự án.';
   else if (project.owner_id === currentUser.id) donateMessage = 'Bạn không thể tài trợ chính dự án của mình.';
   else if (currentUser.role === 'admin') donateMessage = 'Quản trị viên không thực hiện tài trợ.';
+  else if (project.status === 'suspended') donateMessage = 'Dự án đang tạm ngưng do chủ dự án bị khóa tài khoản.';
   else if (project.status !== 'active') donateMessage = 'Dự án không ở trạng thái đang gây quỹ.';
   else if (ended) donateMessage = 'Chiến dịch đã hết hạn.';
 
@@ -306,6 +308,16 @@ export default function ProjectDetailScreen({ navigation, route }) {
         </View>
       </Card>
 
+      {project.status === 'suspended' ? (
+        <Card style={{ padding: 14, marginBottom: 12, borderColor: '#fdba74', backgroundColor: '#fff7ed' }}>
+          <Text style={{ fontWeight: '800', color: '#9a3412' }}>⏸ Dự án đang tạm ngưng</Text>
+          <Text style={{ fontSize: 12, color: '#9a3412', lineHeight: 18, marginTop: 4 }}>
+            Chủ dự án bị khóa tài khoản nên các thao tác quản lý, cập nhật tiến độ, nhận tài trợ và giải ngân đang tạm khóa.
+            Dự án sẽ hoạt động trở lại khi quản trị viên mở khóa tài khoản chủ dự án.
+          </Text>
+        </Card>
+      ) : null}
+
       <PredictionExplain prediction={project.prediction} fallbackScore={project.ai_success_score} />
 
       <View style={{ height: 10 }} />
@@ -353,6 +365,7 @@ export default function ProjectDetailScreen({ navigation, route }) {
                   {u.author_name || 'Chủ dự án'} · {timeAgo(u.created_at)}
                 </Text>
                 <Text style={{ fontSize: 13, color: '#334155', marginTop: 6, lineHeight: 19 }}>{u.content}</Text>
+                <ContentImages images={asArray(u.image_urls)} />
               </Card>
             ))
           )}

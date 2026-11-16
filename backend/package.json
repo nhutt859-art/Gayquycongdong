@@ -10,6 +10,7 @@
     "db:check": "node scripts/db-check.js",
     "db:migrate-auth": "node scripts/migrate-auth.js",
     "db:migrate-ai": "node scripts/migrate-ai.js",
+    "db:migrate-kyc-suspension": "node scripts/migrate-kyc-suspension.js",
     "db:setup": "node scripts/setup-db.js",
     "db:seed": "node scripts/setup-db.js --seed-only",
     "db:seed:realistic": "node scripts/seed-realistic.js",
@@ -27,6 +28,7 @@
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^10.4.0",
     "pg": "^8.16.3",
+    "tesseract.js": "^6.0.1",
     "zod": "^4.1.12"
   }
 }

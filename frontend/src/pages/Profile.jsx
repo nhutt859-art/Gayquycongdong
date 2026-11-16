@@ -2,7 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
-import { EmptyState, ErrorState, Loading, Modal, PageHeader, Spinner, StatCard } from '../components/ui';
+import {
+  EmptyState,
+  ErrorState,
+  Loading,
+  Modal,
+  PageHeader,
+  Spinner,
+  StatCard,
+  StatusBadge,
+} from '../components/ui';
 import {
   formatDate,
   kycVi,
@@ -12,6 +21,59 @@ import {
   transactionTypeVi,
   vnd,
 } from '../lib/format';
+import { isValidVietnamesePhone, PHONE_HINT } from '../lib/phone';
+import { readDocumentImage } from '../lib/images';
+import {
+  KYC_DOCUMENT_TYPES,
+  kycErrorMessage,
+  maxBirthDate,
+  minBirthDate,
+  validateKycDraft,
+} from '../lib/kyc';
+
+const EMPTY_PROJECTS = { owned: [], collaborating: [], invitations: [] };
+
+function emptyKycForm(user) {
+  return {
+    full_name: user?.full_name || '',
+    dob: '',
+    phone: user?.phone || '',
+    email: user?.email || '',
+    address: '',
+    document_type: 'cccd',
+    document_number: '',
+    front_image: '',
+    back_image: '',
+  };
+}
+
+function DocumentUpload({ label, hint, value, busy, onChange, onClear }) {
+  return (
+    <div>
+      <div className="text-xs font-semibold">{label}</div>
+      <label className="mt-1 block cursor-pointer overflow-hidden rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-center transition hover:border-emerald-400">
+        {value ? (
+          <img src={value} alt={label} className="h-32 w-full object-cover" />
+        ) : (
+          <div className="flex h-32 flex-col items-center justify-center gap-1 p-3 text-xs text-slate-500">
+            <span className="text-2xl">📷</span>
+            <span className="font-semibold text-emerald-700">Chọn ảnh chụp ngang</span>
+            <span>{hint}</span>
+          </div>
+        )}
+        <input type="file" accept="image/jpeg,image/png" className="hidden" onChange={onChange} disabled={busy} />
+      </label>
+      <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+        <span>{busy ? <><Spinner className="mr-1 h-3 w-3" /> Đang xử lý ảnh…</> : 'JPEG/PNG · thấy rõ số giấy tờ và họ tên'}</span>
+        {value && !busy && (
+          <button type="button" className="text-red-500 hover:underline" onClick={onClear}>
+            Xóa ảnh
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function Profile() {
   const {
@@ -31,9 +93,11 @@ export default function Profile() {
   const [tab, setTab] = useState('contributions');
   const [pledges, setPledges] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [projectData, setProjectData] = useState(EMPTY_PROJECTS);
+  const [projectView, setProjectView] = useState('');
+  const [kycSummary, setKycSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [kycBusy, setKycBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailMsg, setEmailMsg] = useState('');
   const [emailDevUrl, setEmailDevUrl] = useState('');
@@ -42,6 +106,16 @@ export default function Profile() {
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [form, setForm] = useState({ full_name: '', phone: '', avatar_url: '' });
+
+  const [kycOpen, setKycOpen] = useState(false);
+  const [kycForm, setKycForm] = useState(() => emptyKycForm(currentUser));
+  const [kycError, setKycError] = useState('');
+  const [kycFieldErrors, setKycFieldErrors] = useState({});
+  const [kycBusy, setKycBusy] = useState(false);
+  const [kycImageBusy, setKycImageBusy] = useState('');
+  const [kycMsg, setKycMsg] = useState('');
+  const [kycDevUrl, setKycDevUrl] = useState('');
+  const [kycResendBusy, setKycResendBusy] = useState(false);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -52,13 +126,34 @@ export default function Profile() {
     });
   }, [currentUser]);
 
+  const loadKycSummary = useCallback(async () => {
+    try {
+      const data = await api.get('/me');
+      setKycSummary(data?.kyc || null);
+      return data?.kyc || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const loadHistory = useCallback(async () => {
     setLoading(true);
     setLoadError('');
     try {
-      const [pledgeData, txData] = await Promise.all([api.get('/me/pledges'), api.get('/me/transactions')]);
+      const [pledgeData, txData, projectRes, meData] = await Promise.all([
+        api.get('/me/pledges'),
+        api.get('/me/transactions'),
+        api.get('/me/projects'),
+        api.get('/me'),
+      ]);
       setPledges(pledgeData?.items || []);
       setTransactions(txData?.items || []);
+      setProjectData({
+        owned: projectRes?.owned || [],
+        collaborating: projectRes?.collaborating || [],
+        invitations: projectRes?.invitations || [],
+      });
+      setKycSummary(meData?.kyc || null);
     } catch (err) {
       setLoadError(err.message);
     } finally {
@@ -70,17 +165,15 @@ export default function Profile() {
     loadHistory();
   }, [loadHistory]);
 
-  const startKyc = async () => {
-    setKycBusy(true);
-    try {
-      await api.post('/me/kyc');
-      await Promise.all([refreshSession(), refreshNotifications()]);
-      toast('Xác thực danh tính thành công. Bạn đã có thể tạo dự án.', 'success');
-    } catch (err) {
-      toast(err.message, 'error');
-    } finally {
-      setKycBusy(false);
-    }
+  const profilePhoneError =
+    form.phone.trim() && !isValidVietnamesePhone(form.phone)
+      ? `Số điện thoại chưa hợp lệ. ${PHONE_HINT}`
+      : '';
+  const profilePhoneValid = form.phone.trim() && isValidVietnamesePhone(form.phone);
+
+  const submitNeedKyc = () => {
+    setProjectView('owned');
+    openKyc();
   };
 
   const resendEmailVerification = async () => {
@@ -105,6 +198,10 @@ export default function Profile() {
       setProfileError('Họ tên tối thiểu 2 ký tự.');
       return;
     }
+    if (form.phone.trim() && !isValidVietnamesePhone(form.phone)) {
+      setProfileError(`Số điện thoại chưa hợp lệ. ${PHONE_HINT}`);
+      return;
+    }
     setProfileBusy(true);
     try {
       const data = await api.patch('/me', {
@@ -121,9 +218,102 @@ export default function Profile() {
     }
   };
 
+  const openKyc = () => {
+    const source = kycSummary || {};
+    setKycForm({
+      ...emptyKycForm(currentUser),
+      full_name: source.full_name || currentUser?.full_name || '',
+      dob: source.dob ? String(source.dob).slice(0, 10) : '',
+      phone: source.phone || currentUser?.phone || '',
+      email: source.email || currentUser?.email || '',
+      address: source.address || '',
+      document_type: source.document_type || 'cccd',
+    });
+    setKycError('');
+    setKycFieldErrors({});
+    setKycOpen(true);
+  };
+
+  const pickKycImage = (side) => async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setKycImageBusy(side);
+    setKycError('');
+    try {
+      const label = side === 'front' ? 'Ảnh mặt trước' : 'Ảnh mặt sau';
+      const dataUrl = await readDocumentImage(file, label);
+      const field = side === 'front' ? 'front_image' : 'back_image';
+      setKycForm((value) => ({ ...value, [field]: dataUrl }));
+      setKycFieldErrors((errors) => ({ ...errors, [field]: '' }));
+    } catch (err) {
+      setKycError(err.message);
+    } finally {
+      setKycImageBusy('');
+    }
+  };
+
+  const submitKyc = async (e) => {
+    e.preventDefault();
+    setKycError('');
+    const errors = validateKycDraft(kycForm);
+    setKycFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      setKycError('Vui lòng kiểm tra lại các thông tin được đánh dấu.');
+      return;
+    }
+
+    setKycBusy(true);
+    try {
+      const payload = {
+        ...kycForm,
+        full_name: kycForm.full_name.trim().replace(/\s+/g, ' '),
+        phone: kycForm.phone.trim(),
+        email: kycForm.email.trim(),
+        address: kycForm.address.trim().replace(/\s+/g, ' '),
+        document_number: kycForm.document_number.replace(/[^A-Za-z0-9]/g, '').toUpperCase(),
+        back_image: kycForm.back_image || null,
+      };
+      const data = await api.post('/me/kyc', payload);
+      setKycMsg(data?.message || 'Hồ sơ KYC đã được tiếp nhận.');
+      setKycDevUrl(data?.dev_verification_url || '');
+      setKycOpen(false);
+      await Promise.all([refreshSession(), refreshNotifications(), loadKycSummary()]);
+      toast('Đã gửi hồ sơ xác thực danh tính.', 'success');
+    } catch (err) {
+      setKycError(kycErrorMessage(err));
+    } finally {
+      setKycBusy(false);
+    }
+  };
+
+  const resendKycEmail = async () => {
+    setKycResendBusy(true);
+    setKycMsg('');
+    setKycDevUrl('');
+    try {
+      const data = await api.post('/me/kyc/resend');
+      setKycMsg(data?.message || 'Đã gửi lại email xác thực KYC.');
+      setKycDevUrl(data?.dev_verification_url || '');
+      await refreshSession();
+    } catch (err) {
+      setKycMsg(kycErrorMessage(err));
+    } finally {
+      setKycResendBusy(false);
+    }
+  };
+
   if (!currentUser) return null;
 
   const verified = currentUser.kyc_status === 'verified';
+  const pending = currentUser.kyc_status === 'pending';
+  const documentType = KYC_DOCUMENT_TYPES[kycForm.document_type] || KYC_DOCUMENT_TYPES.cccd;
+  const kycPhoneValid = kycForm.phone && isValidVietnamesePhone(kycForm.phone);
+  const toggleProjectView = (view) => setProjectView((current) => (current === view ? '' : view));
+  const activeProjects = projectView === 'owned' ? projectData.owned : projectData.collaborating;
+  const activeProjectLabel = projectView === 'owned' ? 'Dự án của tôi' : 'Dự án cộng tác';
+  const maxDob = maxBirthDate();
+  const minDob = minBirthDate();
 
   return (
     <div className="space-y-4">
@@ -141,16 +331,91 @@ export default function Profile() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Tổng đã tài trợ" value={vnd(stats.total_pledged)} tone="emerald" />
-        <StatCard label="Dự án sở hữu" value={stats.owned_projects} hint="Vai trò chủ dự án" />
-        <StatCard label="Dự án cộng tác" value={stats.collaborating_projects} />
+        <StatCard
+          label="Dự án của tôi"
+          value={stats.owned_projects}
+          hint={projectView === 'owned' ? 'Đang hiển thị danh sách bên dưới' : 'Bấm để xem tên dự án'}
+          onClick={() => toggleProjectView('owned')}
+          active={projectView === 'owned'}
+        />
+        <StatCard
+          label="Dự án cộng tác"
+          value={stats.collaborating_projects}
+          hint={projectView === 'collaborating' ? 'Đang hiển thị danh sách bên dưới' : 'Bấm để xem tên dự án'}
+          onClick={() => toggleProjectView('collaborating')}
+          active={projectView === 'collaborating'}
+        />
         <StatCard label="Thông báo chưa đọc" value={stats.unread_notifications} tone={stats.unread_notifications ? 'amber' : 'default'} />
       </div>
 
       {needKyc && !verified && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          ⛔ Bạn cần xác thực danh tính (KYC) trước khi tạo dự án. Hãy bấm “Xác thực danh tính” bên dưới.
+          ⛔ Bạn cần xác thực danh tính (KYC) trước khi tạo dự án. Hãy bấm{' '}
+          <button className="link font-semibold" onClick={submitNeedKyc}>xác thực danh tính</button> để gửi hồ sơ.
         </div>
       )}
+
+      <div className="card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-bold">Danh sách dự án</h2>
+            <p className="text-xs text-slate-500">Bấm “Dự án của tôi” hoặc “Dự án cộng tác” để mở danh sách, sau đó bấm tên dự án để truy cập.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className={`rounded-xl px-3 py-1.5 text-sm font-medium ${projectView === 'owned' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              onClick={() => toggleProjectView('owned')}
+            >
+              Dự án của tôi ({projectData.owned.length})
+            </button>
+            <button
+              className={`rounded-xl px-3 py-1.5 text-sm font-medium ${projectView === 'collaborating' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              onClick={() => toggleProjectView('collaborating')}
+            >
+              Dự án cộng tác ({projectData.collaborating.length})
+            </button>
+          </div>
+        </div>
+
+        {!projectView && (
+          <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
+            {projectData.invitations.length > 0
+              ? `Bạn có ${projectData.invitations.length} lời mời cộng tác đang chờ. Mở “Dự án của tôi” để xử lý lời mời.`
+              : 'Chọn một danh sách để xem tên các dự án bạn sở hữu hoặc đang cộng tác.'}
+          </p>
+        )}
+
+        {projectView && (
+          <div className="mt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">{activeProjectLabel} ({activeProjects.length})</h3>
+              <Link to="/du-an-cua-toi" className="link text-xs">Mở trang quản lý dự án →</Link>
+            </div>
+            {activeProjects.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">
+                {projectView === 'owned' ? 'Bạn chưa sở hữu dự án nào.' : 'Bạn chưa cộng tác dự án nào.'}
+              </p>
+            ) : (
+              <div className="mt-2 divide-y">
+                {activeProjects.map((project) => (
+                  <div key={project.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                    <Link to={`/du-an/${project.id}`} className="min-w-0 flex-1 font-semibold link">
+                      {project.cover_emoji || '📁'} {project.title}
+                    </Link>
+                    <StatusBadge status={project.status} />
+                    {project.collab_role && (
+                      <span className="badge bg-indigo-100 text-indigo-700">
+                        {project.collab_role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'}
+                      </span>
+                    )}
+                    <Link to={`/quan-ly/${project.id}`} className="link text-xs">Quản lý</Link>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-4">
@@ -166,7 +431,7 @@ export default function Profile() {
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
               <span className="badge bg-slate-100">{roleVi[currentUser.role] || currentUser.role}</span>
-              <span className={`badge ${verified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+              <span className={`badge ${verified ? 'bg-emerald-100 text-emerald-700' : pending ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
                 {kycVi[currentUser.kyc_status]}
               </span>
               <span className={`badge ${currentUser.email_verified ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -181,12 +446,33 @@ export default function Profile() {
               <p className="mt-1 text-xs text-slate-500">
                 {verified
                   ? 'Tài khoản đã xác thực, đủ điều kiện tạo dự án gây quỹ.'
-                  : 'Xác thực KYC là bắt buộc trước khi tạo dự án. Hệ thống KYC mô phỏng sẽ duyệt tự động ngay lập tức.'}
+                  : pending
+                    ? 'Hồ sơ CCCD/hộ chiếu đã được tiếp nhận. Hệ thống đã đối chiếu OCR và đang chờ bạn xác thực email để hoàn tất.'
+                    : 'Xác thực bằng CCCD hoặc hộ chiếu: ảnh giấy tờ được đối chiếu OCR, kiểm tra trùng số giấy tờ và gửi email xác thực tới bạn.'}
               </p>
+              {verified && kycSummary?.verified_at && (
+                <p className="mt-1 text-xs text-emerald-700">Đã xác thực ngày {formatDate(kycSummary.verified_at)}.</p>
+              )}
+              {pending && kycSummary?.submitted_at && (
+                <p className="mt-1 text-xs text-blue-700">Gửi hồ sơ ngày {formatDate(kycSummary.submitted_at)}.</p>
+              )}
               {!verified && (
-                <button className="btn-primary mt-2 w-full text-sm disabled:opacity-60" onClick={startKyc} disabled={kycBusy}>
-                  {kycBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang xác thực…</> : 'Xác thực danh tính ngay'}
+                <button className="btn-primary mt-2 w-full text-sm" onClick={openKyc}>
+                  {pending ? 'Cập nhật hồ sơ KYC' : 'Xác thực danh tính'}
                 </button>
+              )}
+              {pending && (
+                <button
+                  className="btn-ghost mt-2 w-full text-xs disabled:opacity-60"
+                  onClick={resendKycEmail}
+                  disabled={kycResendBusy}
+                >
+                  {kycResendBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang gửi…</> : 'Gửi lại email xác thực KYC'}
+                </button>
+              )}
+              {kycMsg && <p className="mt-2 rounded-lg bg-slate-50 p-2 text-xs text-slate-600">{kycMsg}</p>}
+              {kycDevUrl && (
+                <a href={kycDevUrl} className="link mt-1 inline-block text-xs">Mở liên kết xác thực KYC →</a>
               )}
               {verified && currentUser.role !== 'admin' && (
                 <Link to="/tao-du-an" className="btn-ghost mt-2 block w-full text-center text-sm">Tạo dự án</Link>
@@ -233,7 +519,7 @@ export default function Profile() {
             </button>
           </div>
 
-          <form className="card space-y-3 p-5" onSubmit={saveProfile}>
+          <form className="card space-y-3 p-5" onSubmit={saveProfile} noValidate>
             <h2 className="font-bold">Chỉnh sửa hồ sơ</h2>
             <div>
               <label className="text-xs font-semibold">Họ và tên</label>
@@ -241,14 +527,27 @@ export default function Profile() {
             </div>
             <div>
               <label className="text-xs font-semibold">Số điện thoại</label>
-              <input className="input mt-1" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="09xx…" />
+              <input
+                className={`input mt-1 ${profilePhoneError ? 'input-error' : ''}`}
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="09xx…"
+                inputMode="tel"
+                aria-invalid={!!profilePhoneError}
+              />
+              {profilePhoneError && <p className="mt-1 text-xs text-red-600">{profilePhoneError}</p>}
+              {profilePhoneValid && <p className="mt-1 text-xs text-emerald-700">✓ Số điện thoại hợp lệ.</p>}
             </div>
             <div>
               <label className="text-xs font-semibold">Ảnh đại diện (URL)</label>
               <input className="input mt-1" value={form.avatar_url} onChange={(e) => setForm({ ...form, avatar_url: e.target.value })} placeholder="https://…" />
             </div>
             {profileError && <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">{profileError}</div>}
-            <button className="btn-primary w-full text-sm disabled:opacity-60" type="submit" disabled={profileBusy}>
+            <button
+              className="btn-primary w-full text-sm disabled:opacity-60"
+              type="submit"
+              disabled={profileBusy || !!profilePhoneError}
+            >
               {profileBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang lưu…</> : 'Lưu hồ sơ'}
             </button>
           </form>
@@ -360,6 +659,172 @@ export default function Profile() {
           )}
         </div>
       </div>
+
+      <Modal
+        open={kycOpen}
+        title="Xác thực danh tính (KYC)"
+        onClose={() => !kycBusy && setKycOpen(false)}
+        wide
+        footer={
+          <>
+            <button className="btn-ghost text-sm" onClick={() => setKycOpen(false)} disabled={kycBusy}>
+              Hủy
+            </button>
+            <button
+              className="btn-primary text-sm disabled:opacity-60"
+              type="submit"
+              form="kyc-form"
+              disabled={kycBusy || !!kycImageBusy}
+            >
+              {kycBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang đối chiếu OCR…</> : 'Gửi hồ sơ xác thực'}
+            </button>
+          </>
+        }
+      >
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+          Hệ thống đối chiếu tự động thông tin bạn nhập với ảnh CCCD/hộ chiếu bằng OCR, kiểm tra số giấy tờ trùng lặp,
+          sau đó gửi liên kết xác thực tới email liên hệ để hoàn tất KYC.
+        </div>
+
+        <form id="kyc-form" className="space-y-3" onSubmit={submitKyc} noValidate>
+          <div>
+            <label className="text-xs font-semibold">Loại giấy tờ</label>
+            <div className="mt-1 grid gap-2 sm:grid-cols-2">
+              {Object.entries(KYC_DOCUMENT_TYPES).map(([key, meta]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`rounded-xl border px-3 py-2 text-left text-sm font-semibold transition ${
+                    kycForm.document_type === key
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                      : 'border-slate-300 bg-white hover:border-emerald-300'
+                  }`}
+                  onClick={() => {
+                    setKycForm((value) => ({ ...value, document_type: key }));
+                    setKycFieldErrors((errors) => ({ ...errors, document_number: '', back_image: '' }));
+                  }}
+                >
+                  {meta.label}
+                  <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                    {meta.backRequired ? 'Cần ảnh mặt trước và mặt sau' : 'Chỉ cần ảnh trang thông tin'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-semibold">Họ và tên trên giấy tờ</label>
+              <input
+                className={`input mt-1 ${kycFieldErrors.full_name ? 'input-error' : ''}`}
+                value={kycForm.full_name}
+                onChange={(e) => setKycForm({ ...kycForm, full_name: e.target.value })}
+                placeholder="Nguyễn Văn A"
+                autoComplete="name"
+              />
+              {kycFieldErrors.full_name && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.full_name}</p>}
+            </div>
+            <div>
+              <label className="text-xs font-semibold">Ngày sinh</label>
+              <input
+                type="date"
+                className={`input mt-1 ${kycFieldErrors.dob ? 'input-error' : ''}`}
+                value={kycForm.dob}
+                min={minDob}
+                max={maxDob}
+                onChange={(e) => setKycForm({ ...kycForm, dob: e.target.value })}
+              />
+              {kycFieldErrors.dob && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.dob}</p>}
+            </div>
+            <div>
+              <label className="text-xs font-semibold">Số điện thoại</label>
+              <input
+                className={`input mt-1 ${kycFieldErrors.phone || (kycForm.phone && !kycPhoneValid) ? 'input-error' : ''}`}
+                value={kycForm.phone}
+                onChange={(e) => {
+                  setKycForm({ ...kycForm, phone: e.target.value });
+                  setKycFieldErrors((errors) => ({ ...errors, phone: '' }));
+                }}
+                placeholder="09xx…"
+                inputMode="tel"
+              />
+              {kycForm.phone && !kycPhoneValid ? (
+                <p className="mt-1 text-xs text-red-600">Số điện thoại chưa hợp lệ. {PHONE_HINT}</p>
+              ) : kycFieldErrors.phone ? (
+                <p className="mt-1 text-xs text-red-600">{kycFieldErrors.phone}</p>
+              ) : kycPhoneValid ? (
+                <p className="mt-1 text-xs text-emerald-700">✓ Số điện thoại hợp lệ.</p>
+              ) : null}
+            </div>
+            <div>
+              <label className="text-xs font-semibold">Email liên hệ</label>
+              <input
+                type="email"
+                className={`input mt-1 ${kycFieldErrors.email ? 'input-error' : ''}`}
+                value={kycForm.email}
+                onChange={(e) => setKycForm({ ...kycForm, email: e.target.value })}
+                placeholder="email@example.com"
+                autoComplete="email"
+              />
+              {kycFieldErrors.email && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.email}</p>}
+              <p className="mt-1 text-[11px] text-slate-500">Liên kết xác thực hồ sơ sẽ được gửi tới email này.</p>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold">Địa chỉ thường trú</label>
+            <textarea
+              className={`input mt-1 ${kycFieldErrors.address ? 'input-error' : ''}`}
+              rows="2"
+              value={kycForm.address}
+              onChange={(e) => setKycForm({ ...kycForm, address: e.target.value })}
+              placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành phố"
+            />
+            {kycFieldErrors.address && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.address}</p>}
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold">{documentType.numberLabel}</label>
+            <input
+              className={`input mt-1 ${kycFieldErrors.document_number ? 'input-error' : ''}`}
+              value={kycForm.document_number}
+              onChange={(e) => setKycForm({ ...kycForm, document_number: e.target.value })}
+              placeholder={documentType.numberPlaceholder}
+              autoComplete="off"
+            />
+            <p className="mt-1 text-[11px] text-slate-500">{documentType.numberHint} Số giấy tờ phải khớp với ảnh tải lên.</p>
+            {kycFieldErrors.document_number && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.document_number}</p>}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <DocumentUpload
+                label={`Ảnh mặt trước ${documentType.short}`}
+                hint="Chụp ngang, đủ sáng, thấy rõ số và họ tên"
+                value={kycForm.front_image}
+                busy={kycImageBusy === 'front'}
+                onChange={pickKycImage('front')}
+                onClear={() => setKycForm((value) => ({ ...value, front_image: '' }))}
+              />
+              {kycFieldErrors.front_image && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.front_image}</p>}
+            </div>
+            <div>
+              <DocumentUpload
+                label={documentType.backRequired ? `Ảnh mặt sau ${documentType.short}` : 'Ảnh mặt sau (không bắt buộc)'}
+                hint={documentType.backRequired ? 'Cần thấy rõ mã MRZ hoặc thông tin mặt sau' : 'Có thể bổ sung nếu giấy tờ có mặt sau'}
+                value={kycForm.back_image}
+                busy={kycImageBusy === 'back'}
+                onChange={pickKycImage('back')}
+                onClear={() => setKycForm((value) => ({ ...value, back_image: '' }))}
+              />
+              {kycFieldErrors.back_image && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.back_image}</p>}
+            </div>
+          </div>
+
+          {kycError && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{kycError}</div>}
+        </form>
+      </Modal>
 
       <Modal
         open={logoutOpen}

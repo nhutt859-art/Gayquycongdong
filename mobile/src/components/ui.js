@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../context/AppContext';
-import { asArray, daysLeft, parseJson, percent, statusVi, vnd } from '../lib/format';
+import { asArray, daysLeft, modelVersionLabel, parseJson, percent, statusVi, vnd } from '../lib/format';
 import { colors, radius, shadow, statusTone } from '../theme';
 
 export function Screen({
@@ -232,12 +232,53 @@ export function Avatar({ name, size = 44 }) {
   );
 }
 
-export function StatTile({ label, value, hint, tone = colors.text }) {
-  return (
-    <View style={styles.statTile}>
+export function StatTile({ label, value, hint, tone = colors.text, onPress, active = false }) {
+  const content = (
+    <View style={[styles.statTile, active && { borderColor: colors.primary, backgroundColor: colors.primaryPale }]}>
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={[styles.statValue, { color: tone }]}>{value}</Text>
       {hint ? <Text style={styles.statHint}>{hint}</Text> : null}
+    </View>
+  );
+  if (!onPress) return content;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => (pressed ? { opacity: 0.85 } : null)}>
+      {content}
+    </Pressable>
+  );
+}
+
+export function ContentImages({ images = [], onRemove, style }) {
+  if (!images.length) return null;
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8, ...style }}>
+      {images.map((uri, index) => (
+        <View key={`${index}-${String(uri).slice(0, 24)}`} style={{ width: '33.33%', paddingRight: 4, marginBottom: 4 }}>
+          <View>
+            <Image
+              source={{ uri }}
+              style={{ width: '100%', height: 84, borderRadius: 8, backgroundColor: colors.slateSoft }}
+              resizeMode="cover"
+            />
+            {onRemove ? (
+              <Pressable
+                onPress={() => onRemove(index)}
+                hitSlop={8}
+                style={{
+                  position: 'absolute',
+                  top: 3,
+                  right: 3,
+                  backgroundColor: 'rgba(15,23,42,0.72)',
+                  borderRadius: 99,
+                  padding: 2,
+                }}
+              >
+                <Ionicons name="close" size={13} color="#fff" />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
@@ -439,7 +480,11 @@ export function PredictionExplain({ prediction, fallbackScore = null, compact = 
         ) : null}
       </Row>
       {modelVersion ? (
-        <Badge label={modelVersion} tone="slate" style={{ marginTop: 6, alignSelf: 'flex-start' }} />
+        <Badge
+          label={modelVersionLabel(modelVersion)}
+          tone="slate"
+          style={{ marginTop: 6, alignSelf: 'flex-start' }}
+        />
       ) : null}
       <Text style={{ color: '#334155', lineHeight: 20, marginTop: 6 }}>{summary}</Text>
 

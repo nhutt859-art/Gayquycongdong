@@ -12,6 +12,7 @@ import ProjectDetailScreen from '../screens/ProjectDetailScreen';
 import CheckoutScreen from '../screens/CheckoutScreen';
 import AuthScreen from '../screens/AuthScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
+import KycScreen from '../screens/KycScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import MyProjectsScreen from '../screens/MyProjectsScreen';
 import ManageProjectScreen from '../screens/ManageProjectScreen';
@@ -84,6 +85,7 @@ export default function RootNavigator() {
       <Stack.Screen name="Checkout" component={CheckoutScreen} options={{ title: 'Tài trợ dự án' }} />
       <Stack.Screen name="Auth" component={AuthScreen} options={{ title: 'Tài khoản' }} />
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Quên mật khẩu' }} />
+      <Stack.Screen name="Kyc" component={KycScreen} options={{ title: 'Xác thực danh tính' }} />
       <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ title: 'Chọn chủ đề' }} />
       <Stack.Screen name="MyProjects" component={MyProjectsScreen} options={{ title: 'Dự án của tôi' }} />
       <Stack.Screen name="ManageProject" component={ManageProjectScreen} options={{ title: 'Quản lý dự án' }} />

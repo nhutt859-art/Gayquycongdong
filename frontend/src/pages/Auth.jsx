@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { Modal, Spinner } from '../components/ui';
 import { kycVi, roleVi } from '../lib/format';
@@ -59,6 +60,11 @@ export function Auth() {
   const [resendBusy, setResendBusy] = useState(false);
   const [resendMsg, setResendMsg] = useState('');
   const [resendDevUrl, setResendDevUrl] = useState('');
+  const [accountLocked, setAccountLocked] = useState(false);
+  const [adminContactOpen, setAdminContactOpen] = useState(false);
+  const [adminContact, setAdminContact] = useState(null);
+  const [adminContactBusy, setAdminContactBusy] = useState(false);
+  const [adminContactError, setAdminContactError] = useState('');
 
   const errors = getFieldErrors(mode, { fullName, email, password });
   const formValid = !errors.fullName && !errors.email && !errors.password;
@@ -92,6 +98,7 @@ export function Auth() {
     setSubmitted(true);
     setError('');
     setUnverifiedEmail('');
+    setAccountLocked(false);
     if (!formValid) return;
     setBusy(true);
     try {
@@ -116,8 +123,26 @@ export function Auth() {
       if (err.status === 403 && err.details?.code === 'EMAIL_NOT_VERIFIED') {
         setUnverifiedEmail(err.details.email || email);
       }
+      if (err.status === 403 && err.details?.code === 'ACCOUNT_LOCKED') {
+        setAccountLocked(true);
+      }
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openAdminContact = async () => {
+    setAdminContactOpen(true);
+    if (adminContact) return;
+    setAdminContactBusy(true);
+    setAdminContactError('');
+    try {
+      const data = await api.get('/auth/admin-contact', { auth: false });
+      setAdminContact(data?.contact || null);
+    } catch (err) {
+      setAdminContactError(err.message);
+    } finally {
+      setAdminContactBusy(false);
     }
   };
 
@@ -326,7 +351,17 @@ export function Auth() {
           {showError('password') && <p className="mt-1 text-xs text-red-600">{errors.password}</p>}
         </div>
 
-        {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {accountLocked ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            Tài khoản đã bị khóa. Vui lòng liên hệ{' '}
+            <button type="button" className="font-semibold underline hover:no-underline" onClick={openAdminContact}>
+              quản trị viên
+            </button>{' '}
+            để được hỗ trợ mở khóa.
+          </div>
+        ) : (
+          error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        )}
         {unverifiedEmail && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
             <p>Chưa nhận được email? Kiểm tra Spam hoặc gửi lại liên kết xác thực.</p>
@@ -363,6 +398,7 @@ export function Auth() {
             setPassword('');
             setError('');
             setUnverifiedEmail('');
+            setAccountLocked(false);
             setResendMsg('');
             setResendDevUrl('');
             setTouched({ fullName: false, email: false, password: false });
@@ -372,6 +408,67 @@ export function Auth() {
           {mode === 'login' ? 'Chưa có tài khoản? Đăng ký' : 'Đã có tài khoản? Đăng nhập'}
         </button>
       </form>
+
+      <Modal
+        open={adminContactOpen}
+        title="Liên hệ quản trị viên"
+        onClose={() => setAdminContactOpen(false)}
+        footer={
+          <button className="btn-primary text-sm" onClick={() => setAdminContactOpen(false)}>
+            Đóng
+          </button>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Tài khoản của bạn đang bị khóa. Vui lòng liên hệ quản trị viên theo thông tin dưới đây để được hỗ trợ.
+        </p>
+        {adminContactBusy && (
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Spinner className="h-4 w-4" /> Đang tải thông tin liên hệ…
+          </div>
+        )}
+        {adminContactError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {adminContactError}
+          </div>
+        )}
+        {adminContact && (
+          <div className="space-y-2 rounded-xl border border-slate-200 p-3 text-sm">
+            <div>
+              <div className="text-xs text-slate-500">Quản trị viên</div>
+              <b>{adminContact.name || 'Quản trị viên GâyQuỹ+'}</b>
+            </div>
+            {adminContact.email && (
+              <div>
+                <div className="text-xs text-slate-500">Email</div>
+                <a className="link break-all" href={adminContact.mailto_url || `mailto:${adminContact.email}`}>
+                  {adminContact.email}
+                </a>
+              </div>
+            )}
+            {adminContact.phone && (
+              <div>
+                <div className="text-xs text-slate-500">Số điện thoại</div>
+                <a className="link" href={`tel:${String(adminContact.phone).replace(/[^\d+]/g, '')}`}>
+                  {adminContact.phone}
+                </a>
+              </div>
+            )}
+            {adminContact.support_hours && (
+              <div>
+                <div className="text-xs text-slate-500">Thời gian hỗ trợ</div>
+                <span>{adminContact.support_hours}</span>
+              </div>
+            )}
+            {!adminContact.email && !adminContact.phone && (
+              <p className="text-xs text-slate-500">Chưa có thông tin liên hệ công khai. Vui lòng thử lại sau.</p>
+            )}
+          </div>
+        )}
+        <p className="text-xs text-slate-500">
+          Khi liên hệ, hãy cung cấp email đăng nhập và lý do bạn cho rằng tài khoản bị khóa nhầm.
+        </p>
+      </Modal>
     </div>
   );
 }

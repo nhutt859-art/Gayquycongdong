@@ -15,6 +15,7 @@ import {
   StatusBadge,
 } from '../components/ui';
 import { daysLeft, formatDate, formatDateTime, percent, timeAgo, vnd } from '../lib/format';
+import { parseImageList } from '../lib/images';
 
 const TABS = [
   ['capnhat', 'Câu chuyện & cập nhật'],
@@ -204,11 +205,18 @@ export default function ProjectDetail() {
   if (!currentUser) donateMessage = 'Đăng nhập để tài trợ dự án.';
   else if (project.owner_id === currentUser.id) donateMessage = 'Bạn không thể tài trợ chính dự án của mình.';
   else if (currentUser.role === 'admin') donateMessage = 'Quản trị viên không thực hiện tài trợ.';
+  else if (project.status === 'suspended') donateMessage = 'Dự án đang tạm ngưng do chủ dự án bị khóa tài khoản.';
   else if (project.status !== 'active') donateMessage = 'Dự án không ở trạng thái đang gây quỹ.';
   else if (ended) donateMessage = 'Chiến dịch đã hết hạn.';
 
   return (
     <div className="space-y-4">
+      {project.status === 'suspended' && (
+        <div className="rounded-xl border border-orange-300 bg-orange-50 p-3 text-sm text-orange-800">
+          ⏸ Dự án đang <b>tạm ngưng</b> vì chủ dự án bị khóa tài khoản. Các thao tác quản lý, cập nhật tiến độ và
+          nhận tài trợ mới đang tạm dừng cho đến khi tài khoản chủ dự án được mở khóa.
+        </div>
+      )}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">
           <div className="card overflow-hidden">
@@ -303,16 +311,33 @@ export default function ProjectDetail() {
                 <div>
                   <h2 className="font-bold">Cập nhật tiến độ ({project.updates.length})</h2>
                   {project.updates.length === 0 && <p className="mt-1 text-sm text-slate-500">Chưa có bản tin nào.</p>}
-                  <div className="mt-2 space-y-2">
-                    {project.updates.map((u) => (
-                      <div key={u.id} className="rounded-xl border border-slate-200 p-3">
-                        <b>{u.title}</b>
-                        <p className="mt-1 whitespace-pre-line text-sm text-slate-600">{u.content}</p>
-                        <div className="mt-1 text-xs text-slate-400">
-                          {u.author_name || 'Ban tổ chức'} · {formatDateTime(u.created_at)} · {timeAgo(u.created_at)}
+                  <div className="mt-2 space-y-3">
+                    {project.updates.map((u) => {
+                      const images = parseImageList(u.image_urls);
+                      return (
+                        <div key={u.id} className="rounded-xl border border-slate-200 p-3">
+                          <b>{u.title}</b>
+                          <p className="mt-1 whitespace-pre-line text-sm text-slate-600">{u.content}</p>
+                          {images.length > 0 && (
+                            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                              {images.map((src, index) => (
+                                <a key={`${u.id}-${index}`} href={src} target="_blank" rel="noreferrer">
+                                  <img
+                                    src={src}
+                                    alt={`${u.title} - ảnh ${index + 1}`}
+                                    className="h-40 w-full rounded-xl border border-slate-200 object-cover"
+                                    loading="lazy"
+                                  />
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                          <div className="mt-2 text-xs text-slate-400">
+                            {u.author_name || 'Ban tổ chức'} · {formatDateTime(u.created_at)} · {timeAgo(u.created_at)}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -427,7 +452,9 @@ export default function ProjectDetail() {
                 Bạn đã tài trợ {vnd(project.my_pledge_total)} cho dự án này.
               </div>
             )}
-            <div className="text-xs text-slate-500">Thanh toán mô phỏng · Không phát sinh giao dịch thật.</div>
+            <div className="text-xs text-slate-500">
+              Khoản tài trợ được xác nhận và cập nhật ngay vào tiến độ dự án. Hệ thống tự động kiểm tra rủi ro giao dịch.
+            </div>
           </div>
 
           <div className="card space-y-2 p-5">

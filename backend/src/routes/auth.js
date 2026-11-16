@@ -9,7 +9,9 @@ import { USER_PUBLIC_COLUMNS, mapUser } from '../lib/mappers.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 import { notify } from '../services/notifications.js';
-import { isMailConfigured, mailProvider, sendMail } from '../services/mailer.js';
+import { isMailConfigured, sendMail } from '../services/mailer.js';
+import { appUrl, deliveryMode, devLinkEnabled, emailLayout, escapeHtml } from '../services/email.js';
+import { verifyKycToken } from '../services/kyc.js';
 import { expiryFromNow, hashToken, newToken, newOtp } from '../lib/tokens.js';
 
 const router = Router();
@@ -53,76 +55,8 @@ const verifyResetCodeSchema = z.object({
   token: z.string().trim().min(4, 'Mã xác nhận tối thiểu 4 ký tự.').max(500),
 });
 
-/** Chế độ dev: chưa có email thì trả OTP/liên kết trực tiếp để test. */
-function devLinkEnabled() {
-  // Không bao giờ trả OTP/liên kết trên production hoặc Render, kể cả khi
-  // vô tình đặt DEV_SHOW_OTP=true trong biến môi trường.
-  if (process.env.RENDER || process.env.NODE_ENV === 'production') return false;
-  if (String(process.env.DEV_SHOW_OTP || '').toLowerCase() === 'true') return true;
-  return !isMailConfigured();
-}
-
-function deliveryMode() {
-  return mailProvider();
-}
-
-function appUrl() {
-  const fallback = process.env.NODE_ENV === 'production' ? 'https://dacntt-web.vercel.app' : 'http://localhost:5173';
-  const raw = process.env.APP_URL || process.env.CORS_ORIGIN || fallback;
-  return String(raw).split(',')[0].trim().replace(/\/+$/, '');
-}
-
 function verificationUrl(token) {
   return `${appUrl()}/xac-thuc-email?token=${encodeURIComponent(token)}`;
-}
-
-function resetUrl(token, email) {
-  const emailParam = email ? `&email=${encodeURIComponent(email)}` : '';
-  return `${appUrl()}/dat-lai-mat-khau?token=${encodeURIComponent(token)}${emailParam}`;
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[ch]);
-}
-
-function emailLayout({ title, intro, buttonText, url, footer, otpCode }) {
-  return `<!doctype html>
-<html lang="vi"><body style="margin:0;padding:24px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
-  <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px">
-    <div style="font-size:20px;font-weight:700;color:#047857">GâyQuỹ+</div>
-    <h1 style="font-size:20px;margin:16px 0 8px">${title}</h1>
-    <p style="font-size:14px;line-height:1.6;color:#334155">${intro}</p>
-    ${
-      otpCode
-        ? `
-    <div style="margin:24px 0;background:#f8fafc;border:2px dashed #047857;border-radius:12px;padding:20px;text-align:center">
-      <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Mã xác nhận (OTP)</div>
-      <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#047857;font-family:monospace">${otpCode}</div>
-      <div style="font-size:12px;color:#64748b;margin-top:8px">Nhập 6 số này vào màn hình xác nhận trên trang web</div>
-    </div>`
-        : ''
-    }
-    ${
-      url && buttonText
-        ? `
-    <p style="margin:24px 0">
-      <a href="${url}" style="display:inline-block;background:#047857;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:600;font-size:14px">${buttonText}</a>
-    </p>
-    <p style="font-size:12px;line-height:1.6;color:#64748b">Nếu nút không hoạt động, mở liên kết sau:<br><a href="${url}" style="color:#047857;word-break:break-all">${url}</a></p>
-    `
-        : ''
-    }
-    <p style="font-size:12px;line-height:1.6;color:#64748b">${footer}</p>
-    <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
-    <p style="font-size:11px;color:#94a3b8">Email tự động từ GâyQuỹ+ — vui lòng không trả lời email này.</p>
-  </div>
-</body></html>`;
 }
 
 async function sendVerificationEmail(user) {
@@ -299,6 +233,43 @@ router.post(
   }),
 );
 
+// GET /api/auth/admin-contact — thông tin liên hệ quản trị viên khi tài khoản bị khóa
+router.get(
+  '/admin-contact',
+  rateLimit({ name: 'admin-contact-ip', windowMs: 15 * MINUTE, max: 60 }),
+  asyncHandler(async (_req, res) => {
+    const envEmail = String(process.env.ADMIN_CONTACT_EMAIL || '').trim();
+    const envName = String(process.env.ADMIN_CONTACT_NAME || '').trim();
+    const envPhone = String(process.env.ADMIN_CONTACT_PHONE || '').trim();
+
+    let admin = null;
+    if (!envEmail || !envName || !envPhone) {
+      const { rows } = await query(
+        `select full_name, email, phone
+           from users
+          where role = 'admin' and status = 'active'
+          order by created_at
+          limit 1`,
+      );
+      admin = rows[0] || null;
+    }
+
+    const email = envEmail || admin?.email || null;
+    const name = envName || admin?.full_name || 'Quản trị viên GâyQuỹ+';
+    const phone = envPhone || admin?.phone || null;
+
+    res.json({
+      contact: {
+        name,
+        email,
+        phone,
+        support_hours: String(process.env.ADMIN_CONTACT_HOURS || '').trim() || null,
+        mailto_url: email ? `mailto:${email}` : null,
+      },
+    });
+  }),
+);
+
 // POST /api/auth/login
 router.post(
   '/login',
@@ -316,7 +287,11 @@ router.post(
 
     const ok = await bcrypt.compare(body.password, user.password_hash);
     if (!ok) throw new ApiError(401, 'Email hoặc mật khẩu không đúng.');
-    if (user.status === 'locked') throw new ApiError(403, 'Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.');
+    if (user.status === 'locked') {
+      throw new ApiError(403, 'Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.', {
+        code: 'ACCOUNT_LOCKED',
+      });
+    }
     if (!user.email_verified_at) {
       throw new ApiError(403, 'Email chưa được xác thực. Hãy mở liên kết trong email đăng ký.', {
         code: 'EMAIL_NOT_VERIFIED',
@@ -359,6 +334,21 @@ router.post(
       ok: true,
       user: mapUser(user),
       message: 'Xác thực email thành công. Bạn có thể đăng nhập ngay.',
+    });
+  }),
+);
+
+// POST /api/auth/verify-kyc — xác thực email KYC và duyệt hồ sơ
+router.post(
+  '/verify-kyc',
+  rateLimit({ name: 'verify-kyc-ip', windowMs: 15 * MINUTE, max: 30 }),
+  asyncHandler(async (req, res) => {
+    const body = parse(tokenSchema, req.body);
+    const user = await verifyKycToken(body.token);
+    res.json({
+      ok: true,
+      user,
+      message: 'Xác thực danh tính thành công. Bạn có thể tạo dự án gây quỹ.',
     });
   }),
 );

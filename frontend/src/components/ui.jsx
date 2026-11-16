@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { daysLeft, percent, statusVi, vnd } from '../lib/format';
+import { daysLeft, modelVersionLabel, percent, statusVi, vnd } from '../lib/format';
 
 export function statusColor(status) {
   return (
@@ -12,6 +12,7 @@ export function statusColor(status) {
       pending_review: 'bg-amber-100 text-amber-700',
       draft: 'bg-slate-200 text-slate-600',
       canceled: 'bg-slate-200 text-slate-600',
+      suspended: 'bg-orange-100 text-orange-700',
     }[status] || 'bg-slate-100 text-slate-600'
   );
 }
@@ -133,7 +134,7 @@ export function PageHeader({ title, subtitle, action }) {
   );
 }
 
-export function StatCard({ label, value, hint, tone = 'default' }) {
+export function StatCard({ label, value, hint, tone = 'default', onClick, active = false }) {
   const tones = {
     default: 'text-slate-800',
     emerald: 'text-emerald-700',
@@ -141,13 +142,24 @@ export function StatCard({ label, value, hint, tone = 'default' }) {
     red: 'text-red-600',
     blue: 'text-blue-700',
   };
-  return (
-    <div className="card p-4">
+  const content = (
+    <>
       <div className="text-xs text-slate-500">{label}</div>
       <div className={`mt-1 text-2xl font-bold ${tones[tone] || tones.default}`}>{value}</div>
       {hint && <div className="mt-1 text-xs text-slate-400">{hint}</div>}
-    </div>
+    </>
   );
+  const className = `card p-4 text-left ${
+    onClick ? 'transition hover:border-emerald-300 hover:shadow-sm' : ''
+  } ${active ? 'border-emerald-400 ring-2 ring-emerald-100' : ''}`;
+  if (onClick) {
+    return (
+      <button type="button" className={className} onClick={onClick} aria-pressed={active}>
+        {content}
+      </button>
+    );
+  }
+  return <div className={className}>{content}</div>;
 }
 
 export function Modal({ open, title, onClose, children, footer, wide = false }) {
@@ -279,7 +291,8 @@ export function Layout({ children }) {
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
       <footer className="py-8 text-center text-xs text-slate-500">
-        GâyQuỹ+ — Nền tảng gây quỹ cộng đồng minh bạch + AI. Thanh toán trong đồ án là mô phỏng.
+        GâyQuỹ+ — Nền tảng gây quỹ cộng đồng minh bạch + AI. Mô hình dự đoán được huấn luyện và kiểm định chéo
+        trên dữ liệu các dự án đã kết thúc.
       </footer>
       <Modal
         open={logoutOpen}
@@ -367,7 +380,7 @@ export function PredictionExplain({ prediction, fallbackScore = null, compact = 
         <span className="text-2xl font-bold text-slate-800">{score}%</span>
         <span className="font-semibold">{label}</span>
         {confidence > 0 && <span className="text-xs text-slate-500">Độ tin cậy {confidence}%</span>}
-        {modelVersion && <span className="badge bg-slate-100 text-slate-600">{modelVersion}</span>}
+        {modelVersion && <span className="badge bg-slate-100 text-slate-600">{modelVersionLabel(modelVersion)}</span>}
       </div>
       <p className="mt-1">{summary}</p>
 
@@ -413,8 +426,8 @@ export function PredictionExplain({ prediction, fallbackScore = null, compact = 
           )}
         </div>
         <p className="mt-2">
-          Logistic regression có kiểm định chéo 5 fold trên các dự án đã kết thúc. Mô hình chỉ dùng tín hiệu
-          có trước khi chiến dịch chạy; điểm tín nhiệm chủ dự án đã bao gồm KYC và lịch sử hoạt động.
+          Mô hình phân loại được huấn luyện và kiểm định chéo 5 fold trên các dự án đã kết thúc. Mô hình chỉ dùng
+          tín hiệu có trước khi chiến dịch chạy; điểm tín nhiệm chủ dự án đã bao gồm KYC và lịch sử hoạt động.
           {metrics.n ? ` Cỡ mẫu kiểm định: ${metrics.n} dự án.` : ''}
           {metrics.baseline_accuracy !== undefined ? ` Baseline đoán theo đa số: ${Math.round(Number(metrics.baseline_accuracy) * 100)}%.` : ''}
         </p>
@@ -436,7 +449,7 @@ export function ModelCard({ model, title = 'Mô hình dự đoán thành công' 
           <h2 className="font-bold">{title}</h2>
           <p className="text-xs text-slate-500">{model.algorithm}</p>
         </div>
-        <span className="badge bg-indigo-100 text-indigo-700">{model.version}</span>
+        <span className="badge bg-indigo-100 text-indigo-700">{modelVersionLabel(model.version, model.version)}</span>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -502,7 +515,7 @@ export function FraudSignals({ evidence, modelVersion = null }) {
     <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <b>Bằng chứng ({signals.length} tín hiệu độc lập)</b>
-        <span className="text-slate-400">{modelVersion || data?.model_version || ''}</span>
+        <span className="text-slate-400">{modelVersionLabel(modelVersion || data?.model_version)}</span>
       </div>
       <div className="mt-2 space-y-1.5">
         {signals.map((signal) => (
@@ -541,7 +554,7 @@ export function FraudEvidenceCard({ flags = [], riskScore = null, modelInfo = nu
         <span className={`badge ${SEVERITY_STYLES[level]}`}>Rủi ro {score}%</span>
       </div>
       <p className="text-xs text-slate-500">
-        Mô hình {modelInfo?.project_model || 'fraud-project-v2.0'} chấm điểm từ các tín hiệu độc lập;
+        Mô hình {modelVersionLabel(modelInfo?.project_model, 'Mô hình rủi ro dự án')} chấm điểm từ các tín hiệu độc lập;
         cảnh báo được tạo khi điểm đạt ngưỡng {threshold}%.
       </p>
 

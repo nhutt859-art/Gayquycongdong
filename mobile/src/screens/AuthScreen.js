@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { colors, radius } from '../theme';
-import { Button, Card, Input, Screen } from '../components/ui';
+import { Button, Card, Input, Loading, ModalSheet, Screen } from '../components/ui';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -17,12 +18,34 @@ export default function AuthScreen({ navigation, route }) {
   const [error, setError] = useState('');
   const [pending, setPending] = useState(null);
   const [resendBusy, setResendBusy] = useState(false);
+  const [lockedNotice, setLockedNotice] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [adminContact, setAdminContact] = useState(null);
+  const [contactBusy, setContactBusy] = useState(false);
+  const [contactError, setContactError] = useState('');
+
   const emailError =
     email.trim() && !EMAIL_RE.test(email.trim()) ? 'Email không hợp lệ.' : '';
 
   const switchMode = (next) => {
     setMode(next);
     setError('');
+    setLockedNotice(false);
+  };
+
+  const openAdminContact = async () => {
+    setContactOpen(true);
+    if (adminContact) return;
+    setContactBusy(true);
+    setContactError('');
+    try {
+      const data = await api.get('/auth/admin-contact', { auth: false });
+      setAdminContact(data?.contact || null);
+    } catch (err) {
+      setContactError(err.message);
+    } finally {
+      setContactBusy(false);
+    }
   };
 
   const submit = async () => {
@@ -63,6 +86,7 @@ export default function AuthScreen({ navigation, route }) {
       }
     } catch (err) {
       setError(err.message);
+      setLockedNotice(err.details?.code === 'ACCOUNT_LOCKED');
     } finally {
       setBusy(false);
     }
@@ -194,7 +218,21 @@ export default function AuthScreen({ navigation, route }) {
 
         {error ? (
           <View style={{ backgroundColor: colors.redSoft, borderRadius: 10, padding: 10, marginBottom: 10 }}>
-            <Text style={{ fontSize: 12, color: '#991b1b' }}>{error}</Text>
+            {lockedNotice ? (
+              <Text style={{ fontSize: 12, color: '#991b1b', lineHeight: 18 }}>
+                Tài khoản đã bị khóa. Vui lòng liên hệ{' '}
+                <Text
+                  onPress={openAdminContact}
+                  accessibilityRole="link"
+                  style={{ fontWeight: '900', textDecorationLine: 'underline' }}
+                >
+                  quản trị viên
+                </Text>
+                .
+              </Text>
+            ) : (
+              <Text style={{ fontSize: 12, color: '#991b1b' }}>{error}</Text>
+            )}
           </View>
         ) : null}
 
@@ -224,6 +262,59 @@ export default function AuthScreen({ navigation, route }) {
         <Ionicons name="arrow-back" size={14} color={colors.muted} />
         <Text style={{ fontSize: 12, color: colors.muted, marginLeft: 4 }}>Tiếp tục khám phá không cần đăng nhập</Text>
       </Pressable>
+
+      <ModalSheet open={contactOpen} title="Liên hệ quản trị viên" onClose={() => setContactOpen(false)}>
+        {contactBusy ? <Loading text="Đang tải thông tin liên hệ…" /> : null}
+        {!contactBusy && contactError ? (
+          <View style={{ backgroundColor: colors.redSoft, borderRadius: 10, padding: 10, marginBottom: 10 }}>
+            <Text style={{ fontSize: 12, color: '#991b1b' }}>{contactError}</Text>
+          </View>
+        ) : null}
+        {!contactBusy && adminContact ? (
+          <View>
+            <View style={{ backgroundColor: colors.slateSoft, borderRadius: 12, padding: 12 }}>
+              <Text style={{ fontWeight: '900', fontSize: 15 }}>{adminContact.name}</Text>
+              {adminContact.email ? (
+                <Text style={{ fontSize: 12, color: '#334155', marginTop: 6 }} selectable>
+                  Email: {adminContact.email}
+                </Text>
+              ) : null}
+              {adminContact.phone ? (
+                <Text style={{ fontSize: 12, color: '#334155', marginTop: 3 }} selectable>
+                  Điện thoại: {adminContact.phone}
+                </Text>
+              ) : null}
+              {adminContact.support_hours ? (
+                <Text style={{ fontSize: 12, color: '#334155', marginTop: 3 }}>
+                  Giờ hỗ trợ: {adminContact.support_hours}
+                </Text>
+              ) : null}
+            </View>
+            <Text style={{ fontSize: 11, color: colors.muted, marginTop: 8, lineHeight: 17 }}>
+              Khi liên hệ, vui lòng gửi kèm email đăng nhập và lý do bạn cho rằng tài khoản bị khóa nhầm. Quản trị viên sẽ
+              kiểm tra và phản hồi.
+            </Text>
+            {adminContact.email ? (
+              <Button
+                title={`Gửi email tới ${adminContact.email}`}
+                icon="mail-outline"
+                onPress={() => Linking.openURL(adminContact.mailto_url || `mailto:${adminContact.email}`)}
+                style={{ marginTop: 10 }}
+              />
+            ) : null}
+            {adminContact.phone ? (
+              <Button
+                title={`Gọi ${adminContact.phone}`}
+                variant="ghost"
+                icon="call-outline"
+                onPress={() => Linking.openURL(`tel:${adminContact.phone}`)}
+                style={{ marginTop: 8 }}
+              />
+            ) : null}
+          </View>
+        ) : null}
+        <Button title="Đóng" variant="ghost" onPress={() => setContactOpen(false)} style={{ marginTop: 10 }} />
+      </ModalSheet>
     </Screen>
   );
 }

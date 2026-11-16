@@ -42,7 +42,7 @@ DROP TYPE IF EXISTS report_status CASCADE;
 CREATE TYPE user_role            AS ENUM ('backer', 'owner', 'admin');
 CREATE TYPE kyc_status           AS ENUM ('none', 'pending', 'verified');
 CREATE TYPE user_status          AS ENUM ('active', 'locked');
-CREATE TYPE project_status       AS ENUM ('draft', 'pending_review', 'active', 'successful', 'failed', 'canceled');
+CREATE TYPE project_status       AS ENUM ('draft', 'pending_review', 'active', 'successful', 'failed', 'canceled', 'suspended');
 CREATE TYPE collaborator_role    AS ENUM ('editor', 'moderator');
 CREATE TYPE pledge_status        AS ENUM ('pending', 'paid', 'refunded', 'failed');
 CREATE TYPE transaction_type     AS ENUM ('payment', 'refund', 'payout');
@@ -73,13 +73,34 @@ CREATE TABLE users (
   verification_token_expires_at  TIMESTAMPTZ,
   reset_token_hash               CHAR(64),
   reset_token_expires_at         TIMESTAMPTZ,
-  token_version                  INTEGER NOT NULL DEFAULT 0
+  token_version                  INTEGER NOT NULL DEFAULT 0,
+  -- Hồ sơ định danh (CCCD/hộ chiếu) + kết quả OCR
+  kyc_document_type              VARCHAR(12),
+  kyc_document_number            VARCHAR(30),
+  kyc_full_name                  VARCHAR(120),
+  kyc_dob                        DATE,
+  kyc_phone                      VARCHAR(30),
+  kyc_contact_email              VARCHAR(160),
+  kyc_address                    TEXT,
+  kyc_document_front_url         TEXT,
+  kyc_document_back_url          TEXT,
+  kyc_submitted_at               TIMESTAMPTZ,
+  kyc_verified_at                TIMESTAMPTZ,
+  kyc_reject_reason              TEXT,
+  kyc_token_hash                 CHAR(64),
+  kyc_token_expires_at           TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX users_email_lower_uidx ON users (lower(email));
 CREATE INDEX users_verification_token_idx ON users (verification_token_hash)
   WHERE verification_token_hash IS NOT NULL;
 CREATE INDEX users_reset_token_idx ON users (reset_token_hash)
   WHERE reset_token_hash IS NOT NULL;
+CREATE INDEX users_kyc_token_idx ON users (kyc_token_hash)
+  WHERE kyc_token_hash IS NOT NULL;
+-- Một giấy tờ chỉ được gắn với một tài khoản đang chờ hoặc đã xác thực.
+CREATE UNIQUE INDEX users_kyc_document_uidx
+  ON users (kyc_document_type, upper(kyc_document_number))
+  WHERE kyc_document_number IS NOT NULL AND kyc_status IN ('pending', 'verified');
 
 -- ============================================================
 -- 2. categories
@@ -108,6 +129,7 @@ CREATE TABLE projects (
   start_date       DATE NOT NULL,
   end_date         DATE NOT NULL,
   status           project_status NOT NULL DEFAULT 'draft',
+  suspended_from_status project_status,
   ai_success_score NUMERIC(5,2) NOT NULL DEFAULT 50 CHECK (ai_success_score BETWEEN 0 AND 100),
   fraud_risk_score NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (fraud_risk_score BETWEEN 0 AND 100),
   reject_reason    TEXT,
@@ -181,6 +203,7 @@ CREATE TABLE project_updates (
   author_id  UUID REFERENCES users(id) ON DELETE SET NULL, -- cột bổ sung: người đăng
   title      VARCHAR(180) NOT NULL,
   content    TEXT NOT NULL,
+  image_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -229,7 +252,7 @@ CREATE TABLE ai_predictions (
   success_probability NUMERIC(5,2) NOT NULL CHECK (success_probability BETWEEN 0 AND 100),
   label               VARCHAR(20),
   confidence          NUMERIC(5,2),
-  model_version       VARCHAR(20) NOT NULL DEFAULT 'logreg-v3.1',
+  model_version       VARCHAR(20) NOT NULL DEFAULT 'success-model-v4.0',
   features_snapshot   JSONB NOT NULL DEFAULT '{}'::jsonb,
   contributions       JSONB NOT NULL DEFAULT '[]'::jsonb,
   model_metrics       JSONB NOT NULL DEFAULT '{}'::jsonb,

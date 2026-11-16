@@ -15,7 +15,7 @@ ALTER TABLE ai_predictions
   ADD COLUMN IF NOT EXISTS confidence NUMERIC(5,2),
   ADD COLUMN IF NOT EXISTS contributions JSONB NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS model_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
-  ALTER COLUMN model_version SET DEFAULT 'logreg-v3.1';
+  ALTER COLUMN model_version SET DEFAULT 'success-model-v4.0';
 
 ALTER TABLE fraud_flags
   ADD COLUMN IF NOT EXISTS evidence JSONB NOT NULL DEFAULT '{}'::jsonb,

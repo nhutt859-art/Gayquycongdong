@@ -41,11 +41,11 @@ Không dùng `localhost` trên điện thoại thật vì điện thoại không
 - **Trang chủ**: chiến dịch sắp kết thúc, gợi ý AI, chủ đề quan tâm
 - **Khám phá**: tìm kiếm, lọc danh mục/trạng thái, sắp xếp, phân trang
 - **Chi tiết dự án**: câu chuyện, bản tin, bình luận/trả lời, gói tri ân, dự đoán AI có giải thích, điểm rủi ro gian lận
-- **Tài trợ**: chọn số tiền/gói, ẩn danh, phương thức thanh toán mô phỏng, kiểm tra rủi ro
+- **Tài trợ**: chọn số tiền/gói, ẩn danh, phương thức thanh toán, kiểm tra rủi ro
 - **Đăng nhập / Đăng ký**: mật khẩu tối thiểu 8 ký tự, đăng ký báo thành công hoặc email đã tồn tại
 - **Quên mật khẩu**: gửi OTP qua email, xác nhận mã rồi chuyển sang màn hình đặt mật khẩu mới
 - **Chọn chủ đề**: lưu sở thích để AI cá nhân hoá gợi ý
-- **Cá nhân**: hồ sơ, KYC mô phỏng, lịch sử tài trợ/giao dịch, quản lý sở thích
+- **Cá nhân**: hồ sơ, KYC bằng CCCD/hộ chiếu (OCR + xác thực email), lịch sử tài trợ/giao dịch, quản lý sở thích
 - **Thông báo**: lọc chưa đọc, đánh dấu đã đọc, xoá
 - **Dự án của tôi**: dự án sở hữu, cộng tác, lời mời
 - **Tạo dự án**: 3 bước, AI ước tính thành công, gửi duyệt

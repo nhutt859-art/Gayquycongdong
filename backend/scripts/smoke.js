@@ -8,6 +8,7 @@
  * Có thể chỉ định admin có sẵn qua SMOKE_ADMIN_EMAIL / SMOKE_ADMIN_PASSWORD.
  */
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { Client } from 'pg';
 
@@ -186,6 +187,13 @@ async function main() {
   check('GET /auth/me trả hồ sơ + stats', me.status === 200 && me.data?.user?.id === backer.user.id);
   check('Stats có số dư tài trợ', typeof me.data?.stats?.total_pledged === 'number');
 
+  const adminContact = await request('GET', '/auth/admin-contact');
+  check(
+    'Có thông tin liên hệ quản trị viên',
+    adminContact.status === 200 && Boolean(adminContact.data?.contact?.name),
+    JSON.stringify(adminContact.data),
+  );
+
   const noAuth = await request('GET', '/me/projects');
   check('Route /me bị chặn khi chưa đăng nhập', noAuth.status === 401);
 
@@ -200,7 +208,7 @@ async function main() {
   check('Gợi ý có score_breakdown', recItems.every((r) => Array.isArray(r.score_breakdown?.components)));
 
   const model = await request('GET', '/ai/model');
-  check('Model card công khai', model.status === 200 && model.data?.model?.version?.startsWith('logreg-'));
+  check('Model card công khai', model.status === 200 && model.data?.model?.version === 'success-model-v4.0');
   check('Model card có 6 tín hiệu', model.data?.model?.features?.length === 6);
   check('Model card có metrics kiểm định chéo', Number(model.data?.model?.metrics?.folds) === 5);
 
@@ -340,8 +348,36 @@ async function main() {
   });
   check('Chưa KYC không tạo được dự án', noKyc.status === 403, JSON.stringify(noKyc.data));
 
-  const kyc = await request('POST', '/me/kyc', { token: newToken });
-  check('KYC mô phỏng tự duyệt', kyc.status === 200 && kyc.data?.user?.kyc_status === 'verified');
+  const missingKyc = await request('POST', '/me/kyc', { token: newToken, body: {} });
+  check('KYC thiếu hồ sơ bị từ chối', missingKyc.status === 400, JSON.stringify(missingKyc.data));
+
+  if (db && registeredUserId) {
+    // Tạo hồ sơ KYC đang chờ + token xác thực, sau đó chạy đúng endpoint xác thực email KYC.
+    const kycToken = `smoke-kyc-${Date.now()}`;
+    const kycHash = crypto.createHash('sha256').update(kycToken).digest('hex');
+    await db.query(
+      `update users
+          set kyc_status = 'pending',
+              kyc_document_type = 'cccd',
+              kyc_document_number = $1,
+              kyc_full_name = 'Người Dùng Smoke',
+              kyc_dob = '1995-05-20',
+              kyc_contact_email = $2,
+              kyc_submitted_at = now(),
+              kyc_token_hash = $3,
+              kyc_token_expires_at = now() + interval '1 hour'
+        where id = $4`,
+      [`SMOKE${Date.now()}`, email, kycHash, registeredUserId],
+    );
+    const kyc = await request('POST', '/auth/verify-kyc', { body: { token: kycToken } });
+    check(
+      'Xác thực KYC qua email token',
+      kyc.status === 200 && kyc.data?.user?.kyc_status === 'verified',
+      JSON.stringify(kyc.data),
+    );
+  } else {
+    check('Xác thực KYC qua email token', false, 'Thiếu DATABASE_URL hoặc tài khoản smoke');
+  }
 
   const created = await request('POST', '/projects', {
     token: newToken,
@@ -485,7 +521,7 @@ async function main() {
   const stats = await request('GET', '/admin/stats', { token: admin.token });
   check('Thống kê admin', stats.status === 200 && Number(stats.data?.total_projects) >= 200, `total=${stats.data?.total_projects}`);
   check('Biểu đồ 7 ngày có 7 điểm', stats.data?.chart?.length === 7, `count=${stats.data?.chart?.length}`);
-  check('Stats có model card dự đoán', stats.data?.ai_model?.version?.startsWith('logreg-'));
+  check('Stats có model card dự đoán', stats.data?.ai_model?.version === 'success-model-v4.0');
   check('Stats có model gian lận + ngưỡng', stats.data?.fraud_model?.threshold === 60);
 
   const pending = await request('GET', '/admin/projects?status=pending_review', { token: admin.token });
@@ -528,12 +564,59 @@ async function main() {
   const lockedLogin = await request('POST', '/auth/login', {
     body: { email: COLLAB_EMAIL, password: PASSWORD },
   });
-  check('Tài khoản bị khóa không đăng nhập được', lockedLogin.status === 403, JSON.stringify(lockedLogin.data));
+  check(
+    'Tài khoản bị khóa không đăng nhập được',
+    lockedLogin.status === 403 && lockedLogin.data?.details?.code === 'ACCOUNT_LOCKED',
+    JSON.stringify(lockedLogin.data),
+  );
   const unlock = await request('PATCH', `/admin/users/${collab.user.id}/status`, {
     token: admin.token,
     body: { status: 'active' },
   });
   check('Mở khóa tài khoản', unlock.status === 200 && unlock.data?.user?.status === 'active');
+  const collabRelogin = await login(COLLAB_EMAIL);
+  check('Đăng nhập lại được sau khi mở khóa', Boolean(collabRelogin.token));
+  collab.token = collabRelogin.token;
+
+  section('Tạm ngưng dự án khi chủ tài khoản bị khóa');
+  const lockOwner = await request('PATCH', `/admin/users/${registeredUserId}/status`, {
+    token: admin.token,
+    body: { status: 'locked' },
+  });
+  check(
+    'Khóa chủ dự án tạm ngưng các dự án đang hoạt động',
+    lockOwner.status === 200 && lockOwner.data?.suspended_projects?.some((p) => p.id === projectA),
+    JSON.stringify(lockOwner.data),
+  );
+  const suspendedDetail = await request('GET', `/projects/${projectA}`, { token: admin.token });
+  check('Dự án chuyển sang trạng thái tạm ngưng', suspendedDetail.data?.status === 'suspended', JSON.stringify(suspendedDetail.data?.status));
+  const pledgeSuspended = await request('POST', `/projects/${projectA}/pledges`, {
+    token: backer.token,
+    body: { amount: 100000 },
+  });
+  check(
+    'Không thể tài trợ dự án đang tạm ngưng',
+    pledgeSuspended.status === 400 && pledgeSuspended.data?.details?.code === 'PROJECT_SUSPENDED',
+    JSON.stringify(pledgeSuspended.data),
+  );
+  const collabBlocked = await request('PATCH', `/projects/${projectA}`, {
+    token: collab.token,
+    body: { title: 'Cập nhật khi dự án tạm ngưng' },
+  });
+  check(
+    'Cộng tác viên bị chặn thao tác trên dự án tạm ngưng',
+    collabBlocked.status === 403 && collabBlocked.data?.details?.code === 'PROJECT_SUSPENDED',
+    JSON.stringify(collabBlocked.data),
+  );
+  const unlockOwner = await request('PATCH', `/admin/users/${registeredUserId}/status`, {
+    token: admin.token,
+    body: { status: 'active' },
+  });
+  check(
+    'Mở khóa khôi phục trạng thái dự án trước đó',
+    unlockOwner.status === 200 && unlockOwner.data?.restored_projects?.some((p) => p.id === projectA && p.status === 'active'),
+    JSON.stringify(unlockOwner.data),
+  );
 
   section('Tổng kết');
   console.log(`\n✅ ${passed} passed   ❌ ${failed} failed`);

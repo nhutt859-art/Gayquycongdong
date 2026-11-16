@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool, query, withTransaction } from '../db.js';
 import { ApiError, asyncHandler } from '../lib/errors.js';
 import { parse } from '../lib/validate.js';
+import { normalizeContentImage } from '../lib/images.js';
 import { mapProject, mapReward } from '../lib/mappers.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.js';
 import { assertCanManage, assertOwner, getProjectAccess } from '../services/permissions.js';
@@ -57,6 +58,7 @@ const closeSchema = z.object({
 const updatePostSchema = z.object({
   title: z.string().trim().min(3, 'Tiêu đề tối thiểu 3 ký tự.').max(180),
   content: z.string().trim().min(10, 'Nội dung tối thiểu 10 ký tự.').max(5000),
+  image_urls: z.array(z.string().trim().min(10)).max(6, 'Tối đa 6 ảnh cho mỗi bản tin.').optional().default([]),
 });
 
 const commentSchema = z.object({
@@ -109,6 +111,20 @@ async function notifyBackers(db, projectId, { type = 'collab', content, link, ex
     `insert into notifications (user_id, type, content, link)
      select distinct x.user_id, $2, $3, $4
        from (select backer_id as user_id from pledges where project_id = $1 and status = 'paid') x
+      where ($5::uuid is null or x.user_id <> $5)`,
+    [projectId, type, content, link, excludeUserId],
+  );
+}
+
+/** Thông báo cho các cộng tác viên còn lại (trừ người vừa thay đổi). */
+async function notifyOtherCollaborators(db, projectId, { type = 'collab', content, link, excludeUserId = null }) {
+  await db.query(
+    `insert into notifications (user_id, type, content, link)
+     select distinct x.user_id, $2, $3, $4
+       from (
+         select user_id from project_collaborators
+          where project_id = $1 and accepted_at is not null
+       ) x
       where ($5::uuid is null or x.user_id <> $5)`,
     [projectId, type, content, link, excludeUserId],
   );
@@ -664,11 +680,12 @@ router.post(
   asyncHandler(async (req, res) => {
     await assertCanManage(pool, req.params.id, req.user);
     const body = parse(updatePostSchema, req.body);
+    const imageUrls = body.image_urls.map((value) => normalizeContentImage(value));
 
     const { rows } = await query(
-      `insert into project_updates (project_id, author_id, title, content)
-       values ($1, $2, $3, $4) returning *`,
-      [req.params.id, req.user.id, body.title, body.content],
+      `insert into project_updates (project_id, author_id, title, content, image_urls)
+       values ($1, $2, $3, $4, $5::jsonb) returning *`,
+      [req.params.id, req.user.id, body.title, body.content, JSON.stringify(imageUrls)],
     );
 
     const project = await query('select title from projects where id = $1', [req.params.id]);
@@ -825,6 +842,11 @@ router.post(
       const project = projectResult.rows[0];
 
       if (project.owner_id === req.user.id) throw new ApiError(400, 'Bạn không thể tài trợ chính dự án của mình.');
+      if (project.status === 'suspended') {
+        throw new ApiError(400, 'Dự án đang tạm ngưng vì chủ dự án bị khóa tài khoản. Vui lòng quay lại sau.', {
+          code: 'PROJECT_SUSPENDED',
+        });
+      }
       if (project.status !== 'active') throw new ApiError(400, 'Dự án không ở trạng thái đang gây quỹ.');
       if (project.end_date < today()) throw new ApiError(400, 'Chiến dịch đã hết hạn.');
 
@@ -1076,8 +1098,14 @@ router.delete(
       content: `Cộng tác viên ${req.user.full_name} đã rời dự án “${project.title}” của bạn.`,
       link: `/quan-ly/${req.params.id}`,
     });
+    await notifyOtherCollaborators(pool, req.params.id, {
+      type: 'collab',
+      content: `Cộng tác viên ${req.user.full_name} đã rời dự án “${project.title}”.`,
+      link,
+      excludeUserId: req.user.id,
+    });
 
-    res.json({ message: 'Đã rời dự án. Chủ dự án, quản trị viên và nhà tài trợ đã được thông báo.' });
+    res.json({ message: 'Đã rời dự án. Chủ dự án, quản trị viên, cộng tác viên và nhà tài trợ đã được thông báo.' });
   }),
 );
 
@@ -1137,6 +1165,12 @@ router.delete(
       type: 'collab',
       content: `Bạn đã được mời ra khỏi dự án “${projectTitle}”.`,
       link,
+    });
+    await notifyOtherCollaborators(pool, req.params.id, {
+      type: 'collab',
+      content: `${actorLabel} đã mời cộng tác viên ${removedName} ra khỏi dự án “${projectTitle}”.`,
+      link,
+      excludeUserId: req.params.userId,
     });
     if (access.isAdmin && project.rows[0]?.owner_id) {
       await notify(pool, project.rows[0].owner_id, {

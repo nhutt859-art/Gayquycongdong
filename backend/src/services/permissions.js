@@ -32,9 +32,20 @@ export async function getProjectAccess(db, projectId, user) {
   };
 }
 
+function assertNotSuspended(access) {
+  if (access.project.status === 'suspended' && !access.isAdmin) {
+    throw new ApiError(
+      403,
+      'Dự án đang tạm ngưng vì chủ dự án bị khóa tài khoản. Mọi thao tác quản lý tạm thời bị chặn cho đến khi quản trị viên mở khóa.',
+      { code: 'PROJECT_SUSPENDED' },
+    );
+  }
+}
+
 export async function assertCanManage(db, projectId, user) {
   const access = await getProjectAccess(db, projectId, user);
   if (!access) throw new ApiError(404, 'Không tìm thấy dự án.');
+  assertNotSuspended(access);
   if (!access.canManage && !access.isAdmin) {
     throw new ApiError(403, 'Bạn không có quyền quản lý dự án này.');
   }
@@ -44,6 +55,7 @@ export async function assertCanManage(db, projectId, user) {
 export async function assertOwner(db, projectId, user) {
   const access = await getProjectAccess(db, projectId, user);
   if (!access) throw new ApiError(404, 'Không tìm thấy dự án.');
+  assertNotSuspended(access);
   if (!access.isOwner && !access.isAdmin) {
     throw new ApiError(403, 'Chỉ chủ dự án mới được thực hiện thao tác này.');
   }

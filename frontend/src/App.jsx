@@ -8,7 +8,7 @@ import Explore from './pages/Explore';
 import ProjectDetail from './pages/ProjectDetail';
 import Checkout from './pages/Checkout';
 import { Auth, Onboarding } from './pages/Auth';
-import { ForgotPassword, ResetPassword, VerifyEmail } from './pages/PasswordReset';
+import { ForgotPassword, ResetPassword, VerifyEmail, VerifyKyc } from './pages/PasswordReset';
 import Profile from './pages/Profile';
 import CreateProject from './pages/CreateProject';
 import { MyProjects, ManageProject } from './pages/Owner';
@@ -44,6 +44,7 @@ export default function App() {
             <Route path="/quen-mat-khau" element={<ForgotPassword />} />
             <Route path="/dat-lai-mat-khau" element={<ResetPassword />} />
             <Route path="/xac-thuc-email" element={<VerifyEmail />} />
+            <Route path="/xac-thuc-kyc" element={<VerifyKyc />} />
             <Route path="/403" element={<Forbidden />} />
 
             {/* Cần đăng nhập */}
