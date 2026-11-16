@@ -2,7 +2,8 @@
 
 App di động dùng **chung backend production** với website, giao diện và chức năng tương tự bản web, không dùng WebView.
 
-- Frontend web: <https://dacntt-web.vercel.app>
+- Frontend web (React): <https://dacntt-web.vercel.app>
+- Expo Web: <https://gayquy-mobile-web.vercel.app>
 - Backend API: <https://gayquy-backend.onrender.com/api>
 
 ## Công nghệ
@@ -68,6 +69,16 @@ Kiểm tra bản web:
 ```bash
 npm run export:web
 ```
+
+### Deploy Expo Web lên Vercel
+
+Project Vercel `gayquy-mobile-web` trỏ vào thư mục `mobile` của repository và tự động deploy khi push `main`. Cấu hình nằm trong `mobile/vercel.json`:
+
+- Build Command: `npm run export:web`
+- Output Directory: `dist`
+- Rewrite mọi route về `/index.html` để SPA hoạt động khi refresh.
+
+URL production: <https://gayquy-mobile-web.vercel.app>
 
 Build native bằng EAS (cần tài khoản Expo):
 

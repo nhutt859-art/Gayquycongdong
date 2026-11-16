@@ -88,7 +88,7 @@ Copy-Item .env.example .env
 npm start
 ```
 
-App dùng chung backend production `https://gayquy-backend.onrender.com/api`. Chọn `a` (Android), `i` (iOS) hoặc `w` (bản web để kiểm tra nhanh). Chi tiết cấu hình, danh sách màn hình và build EAS: [`mobile/README.md`](mobile/README.md).
+App dùng chung backend production `https://gayquy-backend.onrender.com/api`. Chọn `a` (Android), `i` (iOS) hoặc `w` (bản web để kiểm tra nhanh). Bản Expo Web production: <https://gayquy-mobile-web.vercel.app>. Chi tiết cấu hình, danh sách màn hình, deploy web và build EAS: [`mobile/README.md`](mobile/README.md).
 
 ### Kết nối Neon
 
