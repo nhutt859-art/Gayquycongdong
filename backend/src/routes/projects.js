@@ -155,6 +155,7 @@ router.get(
         throw new ApiError(403, 'Bạn không có quyền xem dự án ở trạng thái này.');
       }
       where.push(`p.status = ${add(status)}`);
+      if (status === 'active') where.push('p.end_date >= current_date');
     } else if (!isAdmin) {
       where.push(`p.status not in ('draft', 'pending_review')`);
     }

@@ -11,7 +11,7 @@ router.get(
     const { rows } = await query(`
       select c.id, c.name, c.description, c.created_at,
              (select count(*) from projects p where p.category_id = c.id)::int as project_count,
-             (select count(*) from projects p where p.category_id = c.id and p.status = 'active')::int as active_project_count
+             (select count(*) from projects p where p.category_id = c.id and p.status = 'active' and p.end_date >= current_date)::int as active_project_count
         from categories c
        order by c.name
     `);

@@ -165,6 +165,9 @@ async function main() {
     Number(publicStats.data?.total_raised) >= 0 && Number(publicStats.data?.total_backers) >= 1);
   check('Tổng số dự án bao phủ danh sách công khai',
     Number(publicStats.data?.total_projects) >= Number(list.data?.total));
+  check('Số dự án đang gây quỹ khớp bộ lọc active',
+    Number(publicStats.data?.active_projects) === Number(active.data?.total),
+    `stats=${publicStats.data?.active_projects} list=${active.data?.total}`);
 
   const search = await request('GET', '/projects?q=H%E1%BB%8Dc');
   check('Tìm kiếm theo từ khoá', search.status === 200 && search.data?.items?.length >= 1);
