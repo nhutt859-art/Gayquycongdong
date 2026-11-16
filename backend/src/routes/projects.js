@@ -245,6 +245,26 @@ router.get(
 );
 
 // ============================================================
+// GET /api/projects/stats — số liệu tổng hợp công khai cho trang chủ
+// ============================================================
+router.get(
+  '/stats',
+  asyncHandler(async (_req, res) => {
+    const result = await query(`
+      select
+        (select count(*) from projects
+          where status = 'active' and end_date >= current_date)::int as active_projects,
+        (select coalesce(sum(current_amount), 0) from projects
+          where status in ('active', 'successful', 'suspended'))::numeric as total_raised,
+        (select count(distinct backer_id) from pledges where status = 'paid')::int as total_backers,
+        (select count(*) from projects where status = 'successful')::int as successful_projects,
+        (select count(*) from projects)::int as total_projects
+    `);
+    res.json(result.rows[0]);
+  }),
+);
+
+// ============================================================
 // GET /api/projects/:id — chi tiết đầy đủ cho trang Detail/Manage
 // ============================================================
 router.get(

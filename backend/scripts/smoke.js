@@ -159,6 +159,13 @@ async function main() {
   const activeItems = active.data?.items || [];
   check('Lọc trạng thái active', active.status === 200 && activeItems.length > 0, `count=${activeItems.length}`);
 
+  const publicStats = await request('GET', '/projects/stats');
+  check('GET /projects/stats trả số liệu tổng hợp', publicStats.status === 200 && Number(publicStats.data?.active_projects) > 0, JSON.stringify(publicStats.data));
+  check('Tổng đã huy động và nhà tài trợ hợp lệ',
+    Number(publicStats.data?.total_raised) >= 0 && Number(publicStats.data?.total_backers) >= 1);
+  check('Tổng số dự án bao phủ danh sách công khai',
+    Number(publicStats.data?.total_projects) >= Number(list.data?.total));
+
   const search = await request('GET', '/projects?q=H%E1%BB%8Dc');
   check('Tìm kiếm theo từ khoá', search.status === 200 && search.data?.items?.length >= 1);
 

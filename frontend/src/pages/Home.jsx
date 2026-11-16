@@ -9,6 +9,7 @@ export default function Home() {
   const { currentUser, categories, interests, toast } = useApp();
   const nav = useNavigate();
   const [projects, setProjects] = useState([]);
+  const [stats, setStats] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -19,12 +20,14 @@ export default function Home() {
     setError('');
     try {
       const listTask = api.get('/projects?status=active&limit=6&sort=ending', { auth: false });
+      const statsTask = api.get('/projects/stats', { auth: false }).catch(() => null);
       const recTask = currentUser
         ? api.get('/me/recommendations').catch(() => ({ items: [] }))
         : Promise.resolve({ items: [] });
-      const [list, recs] = await Promise.all([listTask, recTask]);
+      const [list, recs, globalStats] = await Promise.all([listTask, recTask, statsTask]);
       setProjects(list?.items || []);
       setRecommendations(recs?.items || []);
+      setStats(globalStats);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -55,8 +58,9 @@ export default function Home() {
     }
   };
 
-  const activeCount = projects.length;
-  const raised = projects.reduce((sum, p) => sum + Number(p.current_amount || 0), 0);
+  const activeCount = stats ? Number(stats.active_projects) : null;
+  const raised = stats ? Number(stats.total_raised || 0) : null;
+  const backers = stats ? Number(stats.total_backers || 0) : null;
   const interestNames = interests.map((i) => i.name);
 
   return (
@@ -86,9 +90,9 @@ export default function Home() {
           </div>
           <div className="grid grid-cols-3 gap-2 md:col-span-2">
             {[
-              ['Đang gây quỹ', activeCount, '🌱'],
-              ['Đã huy động', compactMoney(raised), '💚'],
-              ['Minh bạch', '100%', '🔎'],
+              ['Đang gây quỹ', activeCount === null ? '—' : activeCount.toLocaleString('vi-VN'), '🌱'],
+              ['Đã huy động', raised === null ? '—' : compactMoney(raised), '💚'],
+              ['Nhà tài trợ', backers === null ? '—' : backers.toLocaleString('vi-VN'), '🤝'],
             ].map(([label, value, icon]) => (
               <div key={label} className="rounded-2xl bg-white/10 p-3 text-center backdrop-blur">
                 <div className="text-2xl">{icon}</div>
