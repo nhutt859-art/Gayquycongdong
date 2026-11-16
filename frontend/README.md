@@ -114,3 +114,11 @@ npm run preview
 - Build production nằm trong `dist/`.
 - `npm run lint` dùng Oxlint; hiện còn cảnh báo `set-state-in-effect`/fast-refresh mang tính khuyến nghị, không chặn build.
 - Khi deploy tĩnh, cấu hình rewrite mọi route về `index.html` và đặt `VITE_API_URL` trỏ tới backend.
+
+## 8. Deploy Vercel
+
+Project Vercel `dacntt-web` trỏ vào thư mục `frontend` và tự động deploy khi push `main`.
+
+- URL production: <https://dacntt-web.vercel.app>
+- `vercel.json` chuyển `/api/*` sang backend Render và rewrite các route SPA về `/index.html`.
+- Sau khi sửa code frontend, chỉ cần commit và push; không cần deploy thủ công.
