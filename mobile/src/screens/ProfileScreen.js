@@ -11,7 +11,7 @@ import {
   pledgeStatusVi,
   roleVi,
   statusVi,
-  transactionStatusVi,
+  transactionStatusText,
   transactionTypeVi,
   vnd,
 } from '../lib/format';
@@ -429,7 +429,7 @@ export default function ProfileScreen({ navigation }) {
                   </Text>
                 </View>
                 <Badge
-                  label={transactionStatusVi[t.status] || t.status}
+                  label={transactionStatusText(t)}
                   tone={t.status === 'success' ? 'emerald' : t.status === 'failed' ? 'red' : 'amber'}
                 />
               </View>

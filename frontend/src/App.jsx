@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import Explore from './pages/Explore';
 import ProjectDetail from './pages/ProjectDetail';
 import Checkout from './pages/Checkout';
+import PaymentResult from './pages/PaymentResult';
 import { Auth, Onboarding } from './pages/Auth';
 import { ForgotPassword, ResetPassword, VerifyEmail, VerifyKyc } from './pages/PasswordReset';
 import Profile from './pages/Profile';
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/kham-pha" element={<Explore />} />
             <Route path="/du-an/:id" element={<ProjectDetail />} />
+            <Route path="/thanh-toan/ket-qua" element={<PaymentResult />} />
             <Route path="/dang-nhap" element={<Auth />} />
             <Route path="/quen-mat-khau" element={<ForgotPassword />} />
             <Route path="/dat-lai-mat-khau" element={<ResetPassword />} />

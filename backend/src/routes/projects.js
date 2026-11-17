@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import { z } from 'zod';
 import { pool, query, withTransaction } from '../db.js';
 import { ApiError, asyncHandler } from '../lib/errors.js';
@@ -8,6 +9,14 @@ import { mapProject, mapReward } from '../lib/mappers.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.js';
 import { assertCanManage, assertOwner, getProjectAccess } from '../services/permissions.js';
 import { notify, notifyAdmins } from '../services/notifications.js';
+import {
+  completeProjectIfFunded,
+  createPendingPayout,
+  notifyAudience,
+  notifyStakeholders,
+  vnDate,
+} from '../services/project-completion.js';
+import { buildPaymentUrl, isVnpayMock } from '../services/vnpay.js';
 import { SUCCESS_STATUSES, SUCCESS_STATUS_SQL } from '../lib/project-status.js';
 import {
   fraudScoreForPledge,
@@ -18,6 +27,20 @@ import {
 
 const router = Router();
 const today = () => new Date().toISOString().slice(0, 10);
+
+/** Mã giao dịch gửi VNPay: duy nhất, chỉ gồm chữ và số. */
+function createTransactionRef() {
+  return `GQ${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
+/** Origin nhận request, dùng để dựng URL trang mô phỏng thanh toán. */
+function requestBaseUrl(req) {
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const host = forwardedHost || req.get('host');
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || req.protocol || 'http';
+  return host ? `${protocol}://${host}` : undefined;
+}
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày phải có dạng YYYY-MM-DD.');
 const uuidSchema = z.string().uuid('ID không hợp lệ.');
@@ -76,7 +99,6 @@ const pledgeSchema = z.object({
   reward_id: z.string().uuid().nullable().optional(),
   is_anonymous: z.boolean().optional().default(false),
   method: z.enum(['VNPay', 'Momo', 'Thẻ quốc tế']).optional().default('VNPay'),
-  simulate_failure: z.boolean().optional().default(false),
 });
 
 const collaboratorSchema = z.object({
@@ -90,22 +112,6 @@ const payoutSchema = z.object({
   amount: z.coerce.number().int().min(100000, 'Số tiền giải ngân tối thiểu 100.000đ.').max(100_000_000_000),
   note: z.string().trim().max(500).optional().nullable(),
 });
-
-async function notifyAudience(db, projectId, { type = 'update', content, link, excludeUserId = null }) {
-  await db.query(
-    `insert into notifications (user_id, type, content, link)
-     select distinct x.user_id, $2, $3, $4
-       from (
-         select user_id from follows where project_id = $1
-         union
-         select backer_id from pledges where project_id = $1 and status = 'paid'
-         union
-         select user_id from project_collaborators where project_id = $1 and accepted_at is not null
-       ) x
-      where ($5::uuid is null or x.user_id <> $5)`,
-    [projectId, type, content, link, excludeUserId],
-  );
-}
 
 async function notifyBackers(db, projectId, { type = 'collab', content, link, excludeUserId = null }) {
   await db.query(
@@ -139,106 +145,6 @@ const STATUS_LABELS = {
   failed: 'Thất bại',
   canceled: 'Đã dừng',
 };
-
-/**
- * Thông báo cho toàn bộ các bên liên quan khi dự án đổi trạng thái:
- * chủ dự án, nhà tài trợ, người theo dõi, cộng tác viên và quản trị viên.
- */
-async function notifyStakeholders(
-  db,
-  project,
-  {
-    type = 'project',
-    content,
-    ownerContent = content,
-    adminContent = content,
-    audienceLink = `/du-an/${project.id}`,
-    ownerLink = `/quan-ly/${project.id}`,
-    adminLink = null,
-    actorId = null,
-  },
-) {
-  await notifyAudience(db, project.id, {
-    type,
-    content,
-    link: audienceLink,
-    excludeUserId: actorId,
-  });
-  if (project.owner_id !== actorId) {
-    await notify(db, project.owner_id, { type, content: ownerContent, link: ownerLink });
-  }
-  await notifyAdmins(db, {
-    type,
-    content: adminContent,
-    link: adminLink,
-    excludeUserId: actorId,
-  });
-}
-
-function vnDate(value) {
-  const raw = String(value || '').slice(0, 10);
-  const [year, month, day] = raw.split('-');
-  return year && month && day ? `${day}/${month}/${year}` : raw;
-}
-
-/**
- * Tạo yêu cầu giải ngân cho phần tiền chưa được yêu cầu/giải ngân.
- * Trả về null nếu dự án đã được yêu cầu giải ngân toàn bộ.
- */
-async function createPendingPayout(db, project) {
-  const paid = await db.query(
-    `select coalesce(sum(amount), 0)::numeric as total
-       from transactions
-      where project_id = $1 and type = 'payout' and status in ('pending', 'success')`,
-    [project.id],
-  );
-  const remaining = Number(project.current_amount) - Number(paid.rows[0].total);
-  if (remaining < 1) return null;
-
-  const { rows } = await db.query(
-    `insert into transactions (project_id, type, amount, method, gateway_ref, status)
-     values ($1, 'payout', $2, 'bank_transfer', $3, 'pending') returning *`,
-    [project.id, remaining, `PAYOUT-AUTO-${String(project.id).slice(0, 8).toUpperCase()}`],
-  );
-  return rows[0];
-}
-
-/** Thông báo khi dự án đạt mục tiêu và chuyển sang “Chờ giải ngân”. */
-async function announceCompletion(db, project, { actorId = null, payout = null } = {}) {
-  const amountText = Number(project.current_amount).toLocaleString('vi-VN');
-  const payoutText = payout
-    ? ` Yêu cầu giải ngân ${Number(payout.amount).toLocaleString('vi-VN')}đ đã được tạo và chỉ được duyệt từ ngày ${vnDate(project.end_date)}.`
-    : '';
-
-  await notifyStakeholders(db, project, {
-    type: 'payout',
-    content: `Chiến dịch “${project.title}” đã đạt mục tiêu với ${amountText}đ, ngừng nhận tài trợ và chuyển sang trạng thái “Chờ giải ngân”.${payoutText}`,
-    ownerContent: `Dự án “${project.title}” đã đạt mục tiêu với ${amountText}đ và chuyển sang trạng thái “Chờ giải ngân”.${payoutText}`,
-    adminContent: `Dự án “${project.title}” đã đạt mục tiêu với ${amountText}đ và đang chờ giải ngân.${payoutText}`,
-    adminLink: '/admin/giai-ngan',
-    actorId,
-  });
-}
-
-/**
- * Tự chuyển dự án sang “Chờ giải ngân” khi tiền đã gọi đạt mục tiêu, đồng thời
- * tạo yêu cầu giải ngân chờ admin duyệt (chỉ duyệt được khi tới hạn).
- */
-async function completeProjectIfFunded(db, projectId, { actorId = null } = {}) {
-  const { rows } = await db.query(
-    `update projects
-        set status = 'awaiting_disbursement', completed_at = now()
-      where id = $1 and status = 'active' and current_amount >= goal_amount
-      returning *`,
-    [projectId],
-  );
-  if (!rows.length) return null;
-
-  const project = rows[0];
-  const payout = await createPendingPayout(db, project);
-  await announceCompletion(db, project, { actorId, payout });
-  return { project, payout };
-}
 
 // ============================================================
 // GET /api/projects — danh sách + lọc + phân trang
@@ -1098,6 +1004,11 @@ router.post(
   asyncHandler(async (req, res) => {
     const body = parse(pledgeSchema, req.body);
     if (req.user.role === 'admin') throw new ApiError(403, 'Quản trị viên không thực hiện tài trợ.');
+    if (body.method !== 'VNPay') {
+      throw new ApiError(400, 'Hiện chỉ hỗ trợ thanh toán qua VNPay. Vui lòng chọn VNPay.');
+    }
+
+    const txnRef = createTransactionRef();
 
     const result = await withTransaction(async (client) => {
       const projectResult = await client.query('select * from projects where id = $1 for update', [req.params.id]);
@@ -1129,10 +1040,6 @@ router.post(
         }
       }
 
-      if (body.simulate_failure) {
-        throw new ApiError(402, 'Thanh toán thất bại (giả lập). Chưa tạo khoản tài trợ.');
-      }
-
       const fraud = await fraudScoreForPledge({
         backerId: req.user.id,
         projectId: req.params.id,
@@ -1145,19 +1052,26 @@ router.post(
       });
       const risk = fraud.score;
 
-      const gatewayRef = `${body.method.replace(/\s+/g, '').toUpperCase()}-${Date.now()}`;
       const pledgeResult = await client.query(
         `insert into pledges (project_id, backer_id, reward_id, amount, is_anonymous, status)
-         values ($1, $2, $3, $4, $5, 'paid') returning *`,
+         values ($1, $2, $3, $4, $5, 'pending') returning *`,
         [req.params.id, req.user.id, body.reward_id || null, body.amount, body.is_anonymous],
       );
       const pledge = pledgeResult.rows[0];
 
       await client.query(
         `insert into transactions (pledge_id, project_id, type, amount, method, gateway_ref, status)
-         values ($1, $2, 'payment', $3, $4, $5, 'success')`,
-        [pledge.id, req.params.id, body.amount, body.method, gatewayRef],
+         values ($1, $2, 'payment', $3, $4, $5, 'pending')`,
+        [pledge.id, req.params.id, body.amount, body.method, txnRef],
       );
+
+      const paymentUrl = buildPaymentUrl({
+        amount: body.amount,
+        txnRef,
+        ipAddr: req.headers['x-forwarded-for'] || req.ip,
+        orderInfo: `ThanhToanTaiTro_${txnRef}`,
+        baseUrl: requestBaseUrl(req),
+      });
 
       if (risk >= 60) {
         await client.query(
@@ -1172,31 +1086,25 @@ router.post(
         });
       }
 
-      await notify(client, project.owner_id, {
-        type: 'pledge',
-        content: `${body.is_anonymous ? 'Một nhà tài trợ ẩn danh' : req.user.full_name} vừa tài trợ ${Number(body.amount).toLocaleString('vi-VN')}đ cho “${project.title}”.`,
-        link: `/du-an/${project.id}`,
-      });
-
       const updated = await client.query('select * from projects where id = $1', [req.params.id]);
-      const completion = await completeProjectIfFunded(client, req.params.id, { actorId: req.user.id });
       return {
         pledge,
-        project: completion?.project || updated.rows[0],
+        project: updated.rows[0],
+        paymentUrl,
         risk,
         fraud,
-        completed: Boolean(completion),
       };
     });
 
     res.status(201).json({
       pledge: { ...result.pledge, amount: Number(result.pledge.amount) },
       project: mapProject(result.project),
+      txn_ref: txnRef,
+      payment_url: result.paymentUrl,
+      payment_mode: isVnpayMock() ? 'mock' : 'vnpay',
       risk: result.risk,
       fraud: result.fraud,
-      message: result.completed
-        ? `Tài trợ ${Number(result.pledge.amount).toLocaleString('vi-VN')}đ thành công. Dự án đã đạt mục tiêu và ngừng nhận tài trợ.`
-        : `Tài trợ ${Number(result.pledge.amount).toLocaleString('vi-VN')}đ thành công.`,
+      message: 'Đang chuyển đến cổng thanh toán VNPay…',
     });
   }),
 );

@@ -191,6 +191,7 @@ CREATE TABLE transactions (
   amount      NUMERIC(14,0) NOT NULL CHECK (amount > 0),
   method      VARCHAR(30),
   gateway_ref VARCHAR(80),
+  gateway_payload JSONB,
   status      transaction_status NOT NULL DEFAULT 'pending',
   processed_by UUID REFERENCES users(id) ON DELETE SET NULL,
   processed_at TIMESTAMPTZ,
@@ -345,6 +346,9 @@ CREATE INDEX pledges_backer_idx         ON pledges (backer_id);
 CREATE INDEX pledges_status_idx         ON pledges (status);
 CREATE INDEX transactions_project_idx   ON transactions (project_id);
 CREATE INDEX transactions_type_status_idx ON transactions (type, status);
+CREATE UNIQUE INDEX transactions_gateway_ref_payment_uidx
+  ON transactions (gateway_ref)
+  WHERE type = 'payment' AND gateway_ref IS NOT NULL;
 CREATE INDEX comments_project_idx       ON comments (project_id);
 CREATE INDEX comments_parent_idx        ON comments (parent_comment_id);
 CREATE INDEX notifications_user_idx     ON notifications (user_id, is_read);

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { AppState, Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { daysLeft, percent, vnd } from '../lib/format';
-import { colors, radius } from '../theme';
+import { colors } from '../theme';
 import {
   AIBox,
   Badge,
@@ -20,7 +20,6 @@ import {
 
 const MIN_AMOUNT = 10000;
 const QUICK_AMOUNTS = [100000, 200000, 500000, 1000000, 2000000, 5000000];
-const METHODS = ['VNPay', 'Momo', 'Thẻ quốc tế'];
 
 export default function CheckoutScreen({ navigation, route }) {
   const { id, rewardId } = route.params;
@@ -29,12 +28,13 @@ export default function CheckoutScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [amount, setAmount] = useState(String(MIN_AMOUNT));
-  const [method, setMethod] = useState('VNPay');
   const [anonymous, setAnonymous] = useState(false);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState(null);
+  const [payment, setPayment] = useState(null);
+  const [paymentStatus, setPaymentStatus] = useState(null);
+  const [checking, setChecking] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,6 +62,38 @@ export default function CheckoutScreen({ navigation, route }) {
     if (preset) setAmount(String(Number(preset.min_amount)));
   }, [preset]);
 
+  const checkPayment = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!payment?.txn_ref) return null;
+      if (!silent) setChecking(true);
+      try {
+        const data = await api.get(`/payments/status/${encodeURIComponent(payment.txn_ref)}`);
+        setPaymentStatus(data);
+        if (!silent) setError('');
+        if (data.result === 'success') {
+          refreshNotifications();
+          refreshSession();
+        }
+        return data;
+      } catch (err) {
+        if (!silent) setError(err.message);
+        return null;
+      } finally {
+        if (!silent) setChecking(false);
+      }
+    },
+    [payment?.txn_ref, refreshNotifications, refreshSession],
+  );
+
+  // Khi người dùng quay lại app sau khi thanh toán trên trình duyệt, tự kiểm tra trạng thái.
+  useEffect(() => {
+    if (!payment?.txn_ref) return undefined;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkPayment({ silent: true });
+    });
+    return () => subscription.remove();
+  }, [checkPayment, payment?.txn_ref]);
+
   const minAmount = preset ? Number(preset.min_amount) : MIN_AMOUNT;
   const amountNumber = Number(amount) || 0;
   const validAmount = amountNumber >= minAmount;
@@ -70,14 +102,24 @@ export default function CheckoutScreen({ navigation, route }) {
   if (loadError) return <Screen><ErrorState message={loadError} onRetry={load} /></Screen>;
   if (!project) return null;
 
-  if (step === 3 && result) {
+  if (step === 3 && payment) {
+    const paid = paymentStatus?.result === 'success';
+    const failed = paymentStatus?.result === 'failed';
+    const amountPaid = paymentStatus?.amount ?? payment.pledge?.amount;
+
     return (
       <Screen>
         <Card style={{ padding: 22, alignItems: 'center' }}>
-          <Text style={{ fontSize: 46 }}>🎉</Text>
-          <Text style={{ fontSize: 20, fontWeight: '900', marginTop: 8 }}>Tài trợ thành công!</Text>
+          <Text style={{ fontSize: 46 }}>{paid ? '🎉' : failed ? '⚠️' : '⏳'}</Text>
+          <Text style={{ fontSize: 20, fontWeight: '900', marginTop: 8 }}>
+            {paid ? 'Tài trợ thành công!' : failed ? 'Thanh toán chưa hoàn tất' : 'Đang chờ thanh toán'}
+          </Text>
           <Text style={{ fontSize: 13, color: colors.muted, textAlign: 'center', marginTop: 4 }}>
-            Bạn đã tài trợ <Text style={{ fontWeight: '800', color: colors.primary }}>{vnd(result.pledge.amount)}</Text> cho “{project.title}”.
+            {paid
+              ? `VNPay đã xác nhận khoản tài trợ ${vnd(amountPaid)} cho “${project.title}”.`
+              : failed
+                ? 'Giao dịch đã bị huỷ hoặc không thành công. Bạn chưa bị trừ tiền.'
+                : 'Hoàn tất thanh toán trên VNPay rồi bấm “Kiểm tra trạng thái”.'}
           </Text>
           {preset ? (
             <Text style={{ fontSize: 13, color: colors.muted, marginTop: 4 }}>
@@ -86,40 +128,84 @@ export default function CheckoutScreen({ navigation, route }) {
           ) : null}
           <View style={{ backgroundColor: colors.slateSoft, borderRadius: 12, padding: 12, marginTop: 12, width: '100%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Text style={{ fontSize: 12, color: colors.muted }}>Phương thức</Text>
-              <Text style={{ fontSize: 12, fontWeight: '700' }}>{method}</Text>
+              <Text style={{ fontSize: 12, color: colors.muted }}>Số tiền</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700' }}>{vnd(amountPaid)}</Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Text style={{ fontSize: 12, color: colors.muted }}>Ẩn danh</Text>
-              <Text style={{ fontSize: 12, fontWeight: '700' }}>{anonymous ? 'Có' : 'Không'}</Text>
+              <Text style={{ fontSize: 12, color: colors.muted }}>Mã giao dịch</Text>
+              <Text style={{ fontSize: 11, fontWeight: '700' }} selectable>{payment.txn_ref}</Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Text style={{ fontSize: 12, color: colors.muted }}>Trạng thái</Text>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>Đã thanh toán</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: paid ? colors.primary : failed ? '#b91c1c' : colors.amber }}>
+                {paid ? 'Đã thanh toán' : failed ? 'Chưa thanh toán' : 'Chờ xác nhận'}
+              </Text>
             </View>
           </View>
+
+          {payment.payment_mode === 'mock' ? (
+            <Text style={{ fontSize: 11, color: colors.amber, textAlign: 'center', marginTop: 8 }}>
+              Đang chạy chế độ mô phỏng vì chưa cấu hình VNPay. Không có giao dịch thật.
+            </Text>
+          ) : null}
+
           <View style={{ flexDirection: 'row', marginTop: 14, width: '100%' }}>
             <Button title="Về dự án" variant="ghost" onPress={() => navigation.goBack()} style={{ flex: 1, marginRight: 6 }} />
             <Button
-              title="Lịch sử đóng góp"
-              onPress={() => navigation.navigate('MainTabs', { screen: 'ProfileTab' })}
+              title="Mở lại VNPay"
+              variant="ghost"
+              onPress={() => Linking.openURL(payment.payment_url).catch(() => setError('Không mở được cổng thanh toán.'))}
               style={{ flex: 1 }}
             />
           </View>
+
+          {!paid ? (
+            <Button
+              title={checking ? 'Đang kiểm tra…' : 'Kiểm tra trạng thái'}
+              onPress={checkPayment}
+              loading={checking}
+              style={{ marginTop: 10, width: '100%' }}
+            />
+          ) : (
+            <Button
+              title="Xem lịch sử đóng góp"
+              onPress={() => navigation.navigate('MainTabs', { screen: 'ProfileTab' })}
+              style={{ marginTop: 10, width: '100%' }}
+            />
+          )}
+
+          {failed ? (
+            <Pressable
+              onPress={() => {
+                setStep(1);
+                setPayment(null);
+                setPaymentStatus(null);
+                setError('');
+              }}
+              style={{ marginTop: 10 }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>Thử lại với số tiền khác</Text>
+            </Pressable>
+          ) : null}
         </Card>
-        {result.fraud && Number(result.fraud.score) >= 60 ? (
-          <AIBox variant="warn" title="GIAO DỊCH ĐANG ĐƯỢC XEM XÉT">
+
+        {error ? (
+          <View style={{ backgroundColor: colors.redSoft, borderRadius: 10, padding: 10, marginTop: 10 }}>
+            <Text style={{ fontSize: 12, color: '#991b1b' }}>{error}</Text>
+          </View>
+        ) : null}
+
+        {paid ? (
+          <AIBox variant="success" title="KHOẢN TÀI TRỢ ĐÃ ĐƯỢC GHI NHẬN">
             <Text style={{ fontSize: 12, color: '#334155' }}>
-              Điểm rủi ro <Text style={{ fontWeight: '800' }}>{Math.round(Number(result.fraud.score))}%</Text>. {result.fraud.summary}
-            </Text>
-            <Text style={{ fontSize: 11, color: colors.muted, marginTop: 4 }}>
-              Khoản tài trợ vẫn được ghi nhận; quản trị viên sẽ xác minh trước khi giải ngân.
+              Hệ thống đã cập nhật số tiền của dự án và gửi thông báo cho chủ dự án.
             </Text>
           </AIBox>
         ) : (
-          <AIBox variant="success" title="GIAO DỊCH AN TOÀN">
+          <AIBox variant="info" title="KIỂM TRA LẠI SAU KHI THANH TOÁN">
             <Text style={{ fontSize: 12, color: '#334155' }}>
-              Giao dịch không có tín hiệu bất thường. Hệ thống tiếp tục theo dõi nếu có giao dịch mới.
+              Hệ thống chỉ cộng tiền sau khi nhận được xác nhận chính thức từ VNPay. Nếu đã thanh toán thành công,
+              hãy đợi vài giây rồi bấm “Kiểm tra trạng thái”.
             </Text>
           </AIBox>
         )}
@@ -150,17 +236,29 @@ export default function CheckoutScreen({ navigation, route }) {
         amount: amountNumber,
         reward_id: preset?.id || null,
         is_anonymous: anonymous,
-        method,
+        method: 'VNPay',
       });
-      setResult(data);
+      if (!data?.payment_url) throw new Error('Không nhận được liên kết thanh toán VNPay.');
+
+      setPayment(data);
+      setPaymentStatus(null);
       setStep(3);
-      toast(data.message || 'Tài trợ thành công.', 'success');
-      refreshNotifications();
-      refreshSession();
+      toast(
+        data.payment_mode === 'mock'
+          ? 'Đang mở trang mô phỏng thanh toán (chưa cấu hình VNPay).'
+          : 'Đang chuyển đến cổng thanh toán VNPay…',
+        'info',
+      );
+
+      try {
+        await Linking.openURL(data.payment_url);
+      } catch {
+        setError('Không mở được cổng thanh toán. Bấm “Mở lại VNPay” để thử lại.');
+      }
     } catch (err) {
       setError(err.message);
       toast(err.message, 'error');
-      if (err.status === 402) setStep(2);
+      setStep(2);
     } finally {
       setBusy(false);
     }
@@ -322,33 +420,55 @@ export default function CheckoutScreen({ navigation, route }) {
             </View>
 
             <Text style={{ fontSize: 12, fontWeight: '800', color: '#334155', marginBottom: 6 }}>Phương thức thanh toán</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
-              {METHODS.map((m) => (
-                <Pressable
-                  key={m}
-                  onPress={() => setMethod(m)}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: method === m ? colors.primary : colors.border,
-                    backgroundColor: method === m ? colors.primaryPale : colors.white,
-                    borderRadius: 10,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    marginRight: 6,
-                    marginBottom: 6,
-                  }}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: method === m ? colors.primaryDark : '#475569' }}>{m}</Text>
-                </Pressable>
-              ))}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderWidth: 1,
+                borderColor: colors.primary,
+                backgroundColor: colors.primaryPale,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 6,
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: colors.primaryDark }}>VNPay</Text>
+                <Text style={{ fontSize: 10, color: colors.muted, marginTop: 1 }}>
+                  Thẻ ATM, Internet Banking, QR, thẻ quốc tế
+                </Text>
+              </View>
+              <Badge label="Đã chọn" tone="emerald" />
             </View>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.slateSoft,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 8,
+              }}
+            >
+              <Text style={{ fontSize: 12, color: colors.muted }}>Ví MoMo · Thẻ quốc tế nhập trực tiếp</Text>
+              <Badge label="Sắp hỗ trợ" tone="slate" />
+            </View>
+            <Text style={{ fontSize: 11, color: colors.muted, lineHeight: 16, marginBottom: 10 }}>
+              Bạn sẽ được chuyển đến cổng thanh toán VNPay. Khoản tài trợ chỉ được ghi nhận sau khi VNPay xác nhận thành công.
+            </Text>
 
             <AIBox variant={amountNumber >= 5000000 ? 'warn' : 'info'} title="KIỂM TRA RỦI RO TỰ ĐỘNG">
               <Text style={{ fontSize: 12, color: '#334155', lineHeight: 18 }}>
-                Giao dịch được kiểm tra rủi ro tự động trước khi xác nhận.
+                Giao dịch được kiểm tra rủi ro tự động trước khi chuyển sang VNPay.
                 {amountNumber >= 5000000
                   ? ' Khoản tài trợ lớn có thể được gắn cờ để quản trị viên xem xét.'
-                  : ' Hệ thống ghi nhận giao dịch và cập nhật tiến độ dự án ngay lập tức.'}
+                  : ' Sau khi thanh toán xong, hệ thống mới cập nhật tiến độ dự án.'}
               </Text>
             </AIBox>
 
@@ -364,7 +484,7 @@ export default function CheckoutScreen({ navigation, route }) {
                 style={{ flex: 1, marginRight: 6 }}
               />
               <Button
-                title={`Xác nhận ${vnd(amountNumber)}`}
+                title={busy ? 'Đang chuyển…' : `Thanh toán ${vnd(amountNumber)}`}
                 onPress={pay}
                 loading={busy}
                 disabled={!project.can_pledge}

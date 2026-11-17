@@ -17,7 +17,7 @@ import {
   kycVi,
   pledgeStatusVi,
   roleVi,
-  transactionStatusVi,
+  transactionStatusText,
   transactionTypeVi,
   vnd,
 } from '../lib/format';
@@ -596,7 +596,7 @@ export default function Profile() {
                       </div>
                       {p.transaction_status && (
                         <div className="text-[11px] text-slate-400">
-                          Giao dịch: {transactionStatusVi[p.transaction_status] || p.transaction_status}
+                          Giao dịch: {transactionStatusText({ status: p.transaction_status })}
                         </div>
                       )}
                     </div>
@@ -648,7 +648,7 @@ export default function Profile() {
                                 : 'bg-red-100 text-red-700'
                           }`}
                         >
-                          {transactionStatusVi[t.status] || t.status}
+                          {transactionStatusText(t)}
                         </span>
                       </div>
                     </div>

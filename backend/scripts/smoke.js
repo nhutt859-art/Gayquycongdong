@@ -49,6 +49,28 @@ async function request(method, path, { token, body } = {}) {
   return { status: res.status, data };
 }
 
+/**
+ * Hoàn tất giao dịch qua trang mô phỏng VNPay (chỉ dùng được khi server chạy
+ * chế độ mock, tức chưa cấu hình VNPAY_TMN_CODE/VNPAY_HASH_SECRET).
+ */
+async function completeMockPayment(paymentUrl, result = 'success') {
+  let url;
+  try {
+    url = new URL(paymentUrl);
+  } catch {
+    return { ok: false, reason: 'payment_url không hợp lệ' };
+  }
+  const token = url.searchParams.get('token');
+  if (!token || !url.pathname.endsWith('/payments/vnpay/mock')) {
+    return { ok: false, reason: 'server đang dùng VNPay thật, không thể mô phỏng' };
+  }
+  const res = await fetch(
+    `${BASE}/payments/vnpay/mock/complete?token=${encodeURIComponent(token)}&result=${result}`,
+    { redirect: 'manual' },
+  );
+  return { ok: res.status >= 300 && res.status < 400, reason: `HTTP ${res.status}` };
+}
+
 function check(name, condition, detail = '') {
   if (condition) {
     passed += 1;
@@ -438,19 +460,80 @@ async function main() {
     token: backer.token,
     body: { amount: 100000, method: 'VNPay', is_anonymous: false },
   });
-  check('Tài trợ thành công', pledge.status === 201 && pledge.data?.pledge?.amount === 100000, JSON.stringify(pledge.data));
+  check(
+    'Tạo tài trợ ở trạng thái chờ thanh toán',
+    pledge.status === 201 && pledge.data?.pledge?.status === 'pending' && !!pledge.data?.payment_url,
+    JSON.stringify(pledge.data),
+  );
+  check('Tài trợ chưa cộng tiền trước khi thanh toán', Number(pledge.data?.project?.current_amount) === Number(before.data?.current_amount));
+
+  if (String(pledge.data?.payment_url || '').includes('/payments/vnpay/mock')) {
+    const mockPage = await fetch(pledge.data.payment_url);
+    const html = await mockPage.text();
+    check(
+      'Trang mô phỏng VNPay hiển thị đúng',
+      mockPage.status === 200 && html.includes('MÔ PHỎNG') && html.includes('100.000'),
+      `HTTP ${mockPage.status}`,
+    );
+  }
+
+  const confirm = await completeMockPayment(pledge.data?.payment_url);
+  check('Mô phỏng VNPay xác nhận thanh toán', confirm.ok, confirm.reason);
+
   const after = await request('GET', `/projects/${projectA}`);
   check(
-    'Trigger cộng tiền sau tài trợ',
+    'Chỉ cộng tiền sau khi thanh toán được xác nhận',
     Number(after.data?.current_amount) === Number(before.data?.current_amount) + 100000,
     `${before.data?.current_amount} -> ${after.data?.current_amount}`,
   );
 
-  const simulateFail = await request('POST', `/projects/${projectA}/pledges`, {
+  const paymentStatus = await request('GET', `/payments/status/${encodeURIComponent(pledge.data?.txn_ref)}`, {
     token: backer.token,
-    body: { amount: 100000, simulate_failure: true },
   });
-  check('Giả lập thanh toán thất bại trả 402', simulateFail.status === 402, JSON.stringify(simulateFail.data));
+  check(
+    'Tra cứu trạng thái giao dịch VNPay',
+    paymentStatus.status === 200 && paymentStatus.data?.result === 'success' && Number(paymentStatus.data?.amount) === 100000,
+    JSON.stringify(paymentStatus.data),
+  );
+
+  const confirmAgain = await completeMockPayment(pledge.data?.payment_url);
+  const afterAgain = await request('GET', `/projects/${projectA}`);
+  check(
+    'Xác nhận lại không cộng tiền lần hai',
+    confirmAgain.ok && Number(afterAgain.data?.current_amount) === Number(after.data?.current_amount),
+    `${after.data?.current_amount} -> ${afterAgain.data?.current_amount}`,
+  );
+
+  const unsupportedMethod = await request('POST', `/projects/${projectA}/pledges`, {
+    token: backer.token,
+    body: { amount: 100000, method: 'Momo' },
+  });
+  check('Chặn phương thức thanh toán chưa hỗ trợ', unsupportedMethod.status === 400, JSON.stringify(unsupportedMethod.data));
+
+  const beforeCancel = await request('GET', `/projects/${projectA}`);
+  const cancelPledge = await request('POST', `/projects/${projectA}/pledges`, {
+    token: backer.token,
+    body: { amount: 150000, method: 'VNPay' },
+  });
+  const cancel = await completeMockPayment(cancelPledge.data?.payment_url, 'failed');
+  const cancelStatus = await request('GET', `/payments/status/${encodeURIComponent(cancelPledge.data?.txn_ref)}`, {
+    token: backer.token,
+  });
+  const afterCancel = await request('GET', `/projects/${projectA}`);
+  check(
+    'Huỷ thanh toán không ghi nhận tài trợ',
+    cancel.ok &&
+      cancelStatus.data?.result === 'failed' &&
+      Number(afterCancel.data?.current_amount) === Number(beforeCancel.data?.current_amount),
+    JSON.stringify({ cancel, status: cancelStatus.data?.result }),
+  );
+
+  const payConfig = await request('GET', '/payments/config');
+  check(
+    'Cấu hình thanh toán trả nhà cung cấp VNPay',
+    payConfig.status === 200 && payConfig.data?.provider === 'VNPay' && ['mock', 'vnpay'].includes(payConfig.data?.mode),
+    JSON.stringify(payConfig.data),
+  );
 
   const myPledges = await request('GET', '/me/pledges', { token: backer.token });
   check('Lịch sử tài trợ có dữ liệu', myPledges.status === 200 && myPledges.data.items.length >= 1, `count=${myPledges.data?.items?.length}`);
@@ -518,7 +601,9 @@ async function main() {
     token: backer.token,
     body: { amount: 100000 },
   });
-  check('Tài trợ dự án thứ hai', pledgeB.status === 201, JSON.stringify(pledgeB.data));
+  check('Tạo tài trợ dự án thứ hai', pledgeB.status === 201 && pledgeB.data?.pledge?.status === 'pending', JSON.stringify(pledgeB.data));
+  const confirmB = await completeMockPayment(pledgeB.data?.payment_url);
+  check('Xác nhận thanh toán dự án thứ hai', confirmB.ok, confirmB.reason);
 
   const closeB = await request('POST', `/projects/${projectB}/close`, {
     token: newToken,
@@ -554,9 +639,19 @@ async function main() {
     body: { amount: 100000 },
   });
   check(
-    'Tài trợ đủ mục tiêu tự chuyển chờ giải ngân',
-    pledgeC.status === 201 && pledgeC.data?.project?.status === 'awaiting_disbursement',
+    'Tạo tài trợ đủ mục tiêu ở trạng thái chờ thanh toán',
+    pledgeC.status === 201 && pledgeC.data?.pledge?.status === 'pending',
     JSON.stringify(pledgeC.data),
+  );
+
+  const confirmC = await completeMockPayment(pledgeC.data?.payment_url);
+  check('Xác nhận thanh toán dự án đủ mục tiêu', confirmC.ok, confirmC.reason);
+
+  const paidC = await request('GET', `/projects/${projectC}`, { token: newToken });
+  check(
+    'Thanh toán đủ mục tiêu tự chuyển chờ giải ngân',
+    paidC.data?.status === 'awaiting_disbursement',
+    JSON.stringify({ status: paidC.data?.status }),
   );
 
   const detailC = await request('GET', `/projects/${projectC}`, { token: newToken });

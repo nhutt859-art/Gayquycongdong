@@ -30,6 +30,15 @@ export const transactionStatusVi = {
   failed: 'Thất bại',
 };
 
+/** Nhãn trạng thái giao dịch theo loại: payment = chờ thanh toán, payout = chờ duyệt. */
+export function transactionStatusText(transaction) {
+  if (!transaction) return '';
+  if (transaction.status === 'pending') {
+    return transaction.type === 'payout' ? 'Chờ duyệt' : 'Chờ thanh toán';
+  }
+  return transactionStatusVi[transaction.status] || transaction.status;
+}
+
 export const disbursementStatusVi = {
   pending: 'Chờ giải ngân',
   disbursed: 'Đã giải ngân',

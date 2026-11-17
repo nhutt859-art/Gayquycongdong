@@ -10,6 +10,8 @@ import projectRoutes from './routes/projects.js';
 import categoryRoutes from './routes/categories.js';
 import adminRoutes from './routes/admin.js';
 import aiRoutes from './routes/ai.js';
+import paymentRoutes from './routes/payments.js';
+import { isVnpayConfigured } from './services/vnpay.js';
 
 if (!process.env.DATABASE_URL) {
   console.error('\n❌ Thiếu DATABASE_URL trong backend/.env');
@@ -33,6 +35,14 @@ if (!isMailConfigured()) {
   console.log(`📧 Dịch vụ email: ${mailProvider()} — from: ${mailFrom()}`);
   const warning = mailConfigWarning();
   if (warning) console.warn(`⚠️  ${warning}`);
+}
+
+if (isVnpayConfigured()) {
+  console.log('💳 VNPay: đã cấu hình cổng thanh toán thật.');
+} else {
+  console.warn('\n⚠️  VNPay chưa được cấu hình (thiếu VNPAY_TMN_CODE / VNPAY_HASH_SECRET / VNPAY_RETURN_URL).');
+  console.warn('   Checkout sẽ chạy ở CHẾ ĐỘ MÔ PHỎNG: không có giao dịch hay tiền thật.');
+  console.warn('   Khi có thông tin sandbox, điền vào backend/.env và Render Environment.\n');
 }
 
 const app = express();
@@ -139,6 +149,7 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/payments', paymentRoutes);
 
 app.use((req, _res, next) => {
   next(new ApiError(404, `Không tìm thấy API: ${req.method} ${req.originalUrl}`));

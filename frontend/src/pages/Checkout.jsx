@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { AIBox, ErrorState, Loading, ProjectCover, Spinner, StatusBadge } from '../components/ui';
@@ -11,18 +11,15 @@ const QUICK_AMOUNTS = [100000, 200000, 500000, 2000000];
 export default function Checkout() {
   const { id } = useParams();
   const [sp] = useSearchParams();
-  const nav = useNavigate();
-  const { currentUser, toast, refreshNotifications, refreshSession } = useApp();
+  const { currentUser, toast } = useApp();
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [amount, setAmount] = useState(200000);
-  const [method, setMethod] = useState('VNPay');
   const [anonymous, setAnonymous] = useState(false);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,45 +56,6 @@ export default function Checkout() {
   if (loadError) return <ErrorState message={loadError} onRetry={load} />;
   if (!project) return null;
 
-  if (step === 3 && result) {
-    return (
-      <div className="mx-auto max-w-xl space-y-4">
-        <div className="card p-8 text-center">
-          <div className="text-5xl">🎉</div>
-          <h1 className="mt-3 text-xl font-bold">Tài trợ thành công!</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Bạn đã tài trợ <b className="text-emerald-700">{vnd(result.pledge.amount)}</b> cho “{project.title}”.
-          </p>
-          {preset && <p className="mt-1 text-sm text-slate-600">Gói tri ân: <b>{preset.title}</b></p>}
-          <div className="mx-auto mt-4 max-w-sm rounded-xl bg-slate-50 p-3 text-left text-sm">
-            <div className="flex justify-between"><span>Phương thức</span><b>{method}</b></div>
-            <div className="flex justify-between"><span>Ẩn danh</span><b>{anonymous ? 'Có' : 'Không'}</b></div>
-            <div className="flex justify-between"><span>Trạng thái</span><b className="text-emerald-700">Đã thanh toán</b></div>
-          </div>
-          <div className="mt-5 flex flex-wrap justify-center gap-2">
-            <Link to={`/du-an/${project.id}`} className="btn-ghost text-sm">Về trang dự án</Link>
-            <button className="btn-primary text-sm" onClick={() => nav('/ca-nhan')}>Xem lịch sử đóng góp</button>
-          </div>
-        </div>
-        <div className="card p-4 text-xs text-slate-500">
-          Hệ thống đã ghi nhận khoản tài trợ, cập nhật số tiền của dự án và gửi thông báo cho chủ dự án.
-        </div>
-        {result.fraud && Number(result.fraud.score) >= 60 ? (
-          <AIBox variant="warn" title="Giao dịch đang được xem xét">
-            Điểm rủi ro <b>{Math.round(Number(result.fraud.score))}%</b>. {result.fraud.summary}
-            <div className="mt-1 text-xs text-slate-600">
-              Khoản tài trợ vẫn được ghi nhận; quản trị viên sẽ xác minh trước khi giải ngân.
-            </div>
-          </AIBox>
-        ) : (
-          <AIBox variant="success">
-            Giao dịch không có tín hiệu bất thường. Hệ thống tiếp tục theo dõi nếu có giao dịch mới.
-          </AIBox>
-        )}
-      </div>
-    );
-  }
-
   const canDonate = project.can_pledge;
   const soldOut = preset && preset.remaining <= 0;
 
@@ -122,18 +80,19 @@ export default function Checkout() {
         amount: amountNumber,
         reward_id: preset?.id || null,
         is_anonymous: anonymous,
-        method,
+        method: 'VNPay',
       });
-      setResult(data);
-      setStep(3);
-      toast(data.message || 'Tài trợ thành công.', 'success');
-      refreshNotifications();
-      refreshSession();
+      if (!data?.payment_url) throw new Error('Không nhận được liên kết thanh toán VNPay.');
+      toast(
+        data.payment_mode === 'mock'
+          ? 'Đang mở trang mô phỏng thanh toán (chưa cấu hình VNPay).'
+          : 'Đang chuyển đến cổng thanh toán VNPay…',
+        'info',
+      );
+      window.location.assign(data.payment_url);
     } catch (err) {
       setError(err.message);
       toast(err.message, 'error');
-      if (err.status === 402) setStep(2);
-    } finally {
       setBusy(false);
     }
   };
@@ -236,18 +195,33 @@ export default function Checkout() {
 
             <div>
               <label className="text-sm font-semibold">Phương thức thanh toán</label>
-              <select className="input mt-1" value={method} onChange={(e) => setMethod(e.target.value)}>
-                <option>VNPay</option>
-                <option>Momo</option>
-                <option>Thẻ quốc tế</option>
-              </select>
+              <div className="mt-2 space-y-2">
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm">
+                  <div>
+                    <b>VNPay</b>
+                    <div className="text-xs text-slate-600">Thẻ ATM, Internet Banking, QR, thẻ quốc tế</div>
+                  </div>
+                  <span className="badge bg-emerald-100 text-emerald-700">Đã chọn</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-400">
+                  <span>Ví MoMo</span>
+                  <span className="badge bg-slate-200 text-slate-500">Sắp hỗ trợ</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-400">
+                  <span>Thẻ quốc tế (nhập trực tiếp)</span>
+                  <span className="badge bg-slate-200 text-slate-500">Sắp hỗ trợ</span>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                Bạn sẽ được chuyển đến cổng thanh toán VNPay. Khoản tài trợ chỉ được ghi nhận sau khi VNPay xác nhận thanh toán thành công.
+              </p>
             </div>
 
             <AIBox variant={amountNumber >= 5000000 ? 'warn' : 'info'}>
-              Giao dịch được kiểm tra rủi ro tự động trước khi xác nhận.
+              Giao dịch được kiểm tra rủi ro tự động trước khi chuyển sang VNPay.
               {amountNumber >= 5000000
                 ? ' Khoản tài trợ lớn có thể được gắn cờ để quản trị viên xem xét.'
-                : ' Hệ thống ghi nhận giao dịch và cập nhật tiến độ dự án ngay lập tức.'}
+                : ' Sau khi thanh toán xong, hệ thống mới cập nhật tiến độ dự án.'}
             </AIBox>
 
             {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
@@ -257,7 +231,7 @@ export default function Checkout() {
                 Quay lại
               </button>
               <button className="btn-primary flex-1 disabled:opacity-60" onClick={pay} disabled={busy || !canDonate}>
-                {busy ? <><Spinner className="mr-1 h-3 w-3" /> Đang xử lý…</> : `Xác nhận ${vnd(amountNumber)}`}
+                {busy ? <><Spinner className="mr-1 h-3 w-3" /> Đang chuyển đến VNPay…</> : `Thanh toán ${vnd(amountNumber)}`}
               </button>
             </div>
           </>
