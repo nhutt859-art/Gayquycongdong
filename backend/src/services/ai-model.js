@@ -17,6 +17,9 @@ import { query } from '../db.js';
 const MODEL_KEY = 'project_success';
 const MODEL_VERSION = 'success-model-v4.0';
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const SUCCESS_STATUSES = ['successful', 'in_progress'];
+const DECIDED_STATUSES = [...SUCCESS_STATUSES, 'failed'];
+const isSuccessStatus = (status) => SUCCESS_STATUSES.includes(status);
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const sigmoid = (z) => 1 / (1 + Math.exp(-clamp(z, -30, 30)));
@@ -93,10 +96,10 @@ function normalizeKyc(value) {
 function categoryRatesFromRows(rows, prior) {
   const byCategory = new Map();
   for (const row of rows) {
-    if (!['successful', 'failed'].includes(row.status)) continue;
+    if (!DECIDED_STATUSES.includes(row.status)) continue;
     const current = byCategory.get(row.category_id) || { n: 0, successes: 0 };
     current.n += 1;
-    if (row.status === 'successful') current.successes += 1;
+    if (isSuccessStatus(row.status)) current.successes += 1;
     byCategory.set(row.category_id, current);
   }
   const result = {};
@@ -121,9 +124,9 @@ function computeOwnerHistory(rows, overallPrior, allowedIds = null) {
     // Khi kiểm định chéo, chỉ dùng kết quả của tập huấn luyện để dựng
     // lịch sử chủ dự án, tránh để nhãn của tập validation rò rỉ vào đặc trưng.
     if (allowedIds && !allowedIds.has(row.id)) continue;
-    if (['successful', 'failed'].includes(row.status)) {
+    if (DECIDED_STATUSES.includes(row.status)) {
       current.count += 1;
-      if (row.status === 'successful') current.successes += 1;
+      if (isSuccessStatus(row.status)) current.successes += 1;
       stats.set(row.owner_id, current);
     }
   }
@@ -230,7 +233,7 @@ function aucScore(pairs) {
 
 function evaluate(model, rows, categoryRates, overallPrior, stats) {
   const pairs = rows.map((row) => ({
-    y: row.status === 'successful' ? 1 : 0,
+    y: isSuccessStatus(row.status) ? 1 : 0,
     p: predictProbability(model, vectorize(row, categoryRates, overallPrior, stats)),
   }));
   const threshold = 0.5;
@@ -273,7 +276,7 @@ function averageMetrics(list) {
 
 function fallbackModel(rows) {
   const overallPrior = rows.length
-    ? rows.filter((r) => r.status === 'successful').length / Math.max(1, rows.filter((r) => ['successful', 'failed'].includes(r.status)).length)
+    ? rows.filter((r) => isSuccessStatus(r.status)).length / Math.max(1, rows.filter((r) => DECIDED_STATUSES.includes(r.status)).length)
     : 0.55;
   const stats = {};
   for (const feature of FEATURES) stats[feature.key] = { mean: 0, std: 1 };
@@ -311,9 +314,9 @@ async function loadDataset() {
       order by p.created_at asc`,
   );
 
-  const decided = rows.filter((r) => ['successful', 'failed'].includes(r.status));
+  const decided = rows.filter((r) => DECIDED_STATUSES.includes(r.status));
   const overallPrior = decided.length
-    ? decided.filter((r) => r.status === 'successful').length / decided.length
+    ? decided.filter((r) => isSuccessStatus(r.status)).length / decided.length
     : 0.55;
   const history = computeOwnerHistory(rows, overallPrior);
   const categorySamples = new Map();
@@ -334,15 +337,15 @@ async function loadDataset() {
 }
 
 function trainFinalModel(rows) {
-  const decided = rows.filter((r) => ['successful', 'failed'].includes(r.status));
+  const decided = rows.filter((r) => DECIDED_STATUSES.includes(r.status));
   if (decided.length < 24 || new Set(decided.map((r) => r.status)).size < 2) {
     return fallbackModel(rows);
   }
-  const overallPrior = decided.filter((r) => r.status === 'successful').length / decided.length;
+  const overallPrior = decided.filter((r) => isSuccessStatus(r.status)).length / decided.length;
   const categoryRates = categoryRatesFromRows(decided, overallPrior);
   const stats = featureStats(decided, categoryRates, overallPrior);
   const X = decided.map((row) => vectorize(row, categoryRates, overallPrior, stats));
-  const y = decided.map((row) => (row.status === 'successful' ? 1 : 0));
+  const y = decided.map((row) => (isSuccessStatus(row.status) ? 1 : 0));
   const fitted = fitLogistic(X, y);
   return {
     model_key: MODEL_KEY,
@@ -371,7 +374,7 @@ function trainFinalModel(rows) {
 }
 
 function crossValidate(rows) {
-  const decided = rows.filter((r) => ['successful', 'failed'].includes(r.status));
+  const decided = rows.filter((r) => DECIDED_STATUSES.includes(r.status));
   if (decided.length < 24 || new Set(decided.map((r) => r.status)).size < 2) return null;
   const folds = 5;
   const buckets = Array.from({ length: folds }, () => []);
@@ -385,7 +388,7 @@ function crossValidate(rows) {
     if (!validation.length || !training.length) continue;
     const trainLabels = new Set(training.map((r) => r.status));
     if (trainLabels.size < 2) continue;
-    const overallPrior = training.filter((r) => r.status === 'successful').length / training.length;
+    const overallPrior = training.filter((r) => isSuccessStatus(r.status)).length / training.length;
     const trainingIds = new Set(training.map((r) => r.id));
     const history = computeOwnerHistory(rows, overallPrior, trainingIds);
     const trainingRows = training.map((row) => ({ ...row, ...history.get(row.id) }));
@@ -393,7 +396,7 @@ function crossValidate(rows) {
     const categoryRates = categoryRatesFromRows(trainingRows, overallPrior);
     const stats = featureStats(trainingRows, categoryRates, overallPrior);
     const X = trainingRows.map((row) => vectorize(row, categoryRates, overallPrior, stats));
-    const y = trainingRows.map((row) => (row.status === 'successful' ? 1 : 0));
+    const y = trainingRows.map((row) => (isSuccessStatus(row.status) ? 1 : 0));
     const model = fitLogistic(X, y);
     results.push(evaluate(model, validationRows, categoryRates, overallPrior, stats));
   }
@@ -408,10 +411,10 @@ export async function trainModel({ persist = true } = {}) {
   const rows = await loadDataset();
   const model = trainFinalModel(rows);
   const cv = crossValidate(rows);
-  const decided = rows.filter((r) => ['successful', 'failed'].includes(r.status));
+  const decided = rows.filter((r) => DECIDED_STATUSES.includes(r.status));
   const majority = decided.length
     ? Math.max(
-        decided.filter((r) => r.status === 'successful').length,
+        decided.filter((r) => isSuccessStatus(r.status)).length,
         decided.filter((r) => r.status === 'failed').length,
       ) / decided.length
     : null;
@@ -612,8 +615,8 @@ export async function predictForNewProject({
   let ownerPriorSuccesses = 0;
   if (ownerId) {
     const { rows } = await query(
-      `select count(*) filter (where status in ('successful', 'failed'))::int as total,
-              count(*) filter (where status = 'successful')::int as successes
+      `select count(*) filter (where status in ('successful', 'in_progress', 'failed'))::int as total,
+              count(*) filter (where status in ('successful', 'in_progress'))::int as successes
          from projects where owner_id = $1`,
       [ownerId],
     );

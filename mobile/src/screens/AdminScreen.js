@@ -10,6 +10,7 @@ import {
   kycVi,
   modelVersionLabel,
   roleVi,
+  statusVi,
   transactionStatusVi,
   vnd,
 } from '../lib/format';
@@ -557,25 +558,42 @@ export default function AdminScreen({ navigation, route }) {
               <Card key={p.id} style={{ padding: 12, marginBottom: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: '800', fontSize: 13 }}>{p.project_title}</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <Text style={{ fontWeight: '800', fontSize: 13, marginRight: 6 }}>{p.project_title}</Text>
+                      <Badge
+                        label={statusVi[p.project_status] || p.project_status}
+                        tone={p.project_status === 'in_progress' ? 'indigo' : p.project_status === 'successful' ? 'blue' : 'slate'}
+                      />
+                    </View>
                     <Text style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>
                       {p.owner_name} · {p.owner_email}
                     </Text>
                     <Text style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>
                       Số tiền <Text style={{ fontWeight: '800', color: colors.text }}>{vnd(p.amount)}</Text> · Đã huy động{' '}
-                      {vnd(p.current_amount)} · {formatDate(p.created_at)}
+                      {vnd(p.current_amount)} · Kết thúc {formatDate(p.end_date)}
                     </Text>
                     <Text style={{ fontSize: 9, color: colors.soft }}>{p.gateway_ref}</Text>
+                    {p.processed_at ? (
+                      <Text style={{ fontSize: 9, color: colors.muted, marginTop: 2 }}>
+                        Xử lý bởi {p.processed_by_name || 'Quản trị viên'} · {formatDateTime(p.processed_at)}
+                      </Text>
+                    ) : null}
                   </View>
                   <Badge
                     label={transactionStatusVi[p.status] || p.status}
                     tone={p.status === 'success' ? 'emerald' : p.status === 'failed' ? 'red' : 'amber'}
                   />
                 </View>
+                {p.status === 'pending' && !p.can_disburse && p.block_reason ? (
+                  <View style={{ backgroundColor: colors.amberSoft, borderRadius: 8, padding: 8, marginTop: 8 }}>
+                    <Text style={{ fontSize: 10, color: colors.amber }}>{p.block_reason}</Text>
+                  </View>
+                ) : null}
                 {p.status === 'pending' ? (
                   <View style={{ flexDirection: 'row', marginTop: 8 }}>
                     <Button
                       title="Duyệt"
+                      disabled={!p.can_disburse}
                       loading={busy === p.id}
                       onPress={() => reviewPayout(p, 'approve')}
                       style={{ flex: 1, marginRight: 5 }}
@@ -591,6 +609,12 @@ export default function AdminScreen({ navigation, route }) {
               </Card>
             ))
           )}
+          <Card style={{ padding: 12 }}>
+            <Text style={{ fontSize: 10, color: colors.muted, lineHeight: 16 }}>
+              Chỉ dự án đã hoàn thành và tới ngày kết thúc mới được giải ngân. Khi duyệt, dự án chuyển sang “Đang triển khai”.
+              Dự án thất bại hoặc đã dừng sẽ được hoàn tiền cho nhà tài trợ.
+            </Text>
+          </Card>
         </View>
       ) : null}
 

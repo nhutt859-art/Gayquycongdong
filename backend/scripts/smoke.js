@@ -465,7 +465,11 @@ async function main() {
     token: newToken,
     body: { amount: 100000 },
   });
-  check('Owner gửi yêu cầu giải ngân', payout.status === 201 && payout.data?.transaction?.status === 'pending', JSON.stringify(payout.data));
+  check(
+    'Chưa hoàn thành thì chưa được yêu cầu giải ngân',
+    payout.status === 400,
+    JSON.stringify(payout.data),
+  );
 
   section('Cộng tác viên');
   const collab = await login(COLLAB_EMAIL);
@@ -527,6 +531,140 @@ async function main() {
   const afterRefund = await request('GET', `/projects/${projectB}`, { token: admin.token });
   check('Hoàn tiền đưa current_amount về 0', Number(afterRefund.data?.current_amount) === 0, `current=${afterRefund.data?.current_amount}`);
 
+  section('Hoàn thành sớm & giải ngân đúng hạn');
+  const createdC = await request('POST', '/projects', {
+    token: newToken,
+    body: {
+      title: 'Dự án kiểm thử hoàn thành sớm',
+      description: 'Dự án thứ ba kiểm thử tự động việc đạt mục tiêu trước hạn, tạo yêu cầu giải ngân và chuyển trạng thái đang triển khai.',
+      category_id: categoryId,
+      goal_amount: 100000,
+      start_date: iso(0),
+      end_date: iso(30),
+      rewards: [{ title: 'Gói cảm ơn', min_amount: 100000, quantity_available: 100 }],
+    },
+  });
+  const projectC = createdC.data?.project?.id;
+  if (projectC) tempProjectIds.push(projectC);
+  check('Tạo dự án kiểm thử hoàn thành sớm', createdC.status === 201 && !!projectC);
+  await request('POST', `/admin/projects/${projectC}/approve`, { token: admin.token });
+
+  const pledgeC = await request('POST', `/projects/${projectC}/pledges`, {
+    token: backer.token,
+    body: { amount: 100000 },
+  });
+  check(
+    'Tài trợ đủ mục tiêu tự chuyển hoàn thành',
+    pledgeC.status === 201 && pledgeC.data?.project?.status === 'successful',
+    JSON.stringify(pledgeC.data),
+  );
+
+  const detailC = await request('GET', `/projects/${projectC}`, { token: newToken });
+  check(
+    'Dự án hoàn thành có completed_at và ngừng nhận tài trợ',
+    detailC.data?.status === 'successful' && !!detailC.data?.completed_at && detailC.data?.can_pledge === false,
+    JSON.stringify({ status: detailC.data?.status, completed_at: detailC.data?.completed_at }),
+  );
+  const autoPayout = detailC.data?.payouts?.[0];
+  check(
+    'Tự tạo yêu cầu giải ngân chờ duyệt',
+    detailC.data?.payouts?.length === 1 && autoPayout?.status === 'pending' && Number(autoPayout?.amount) === 100000,
+    JSON.stringify(detailC.data?.payouts),
+  );
+  check(
+    'Trạng thái giải ngân ban đầu là chưa giải ngân',
+    detailC.data?.disbursement?.status === 'not_disbursed' &&
+      detailC.data?.disbursement?.can_disburse === false &&
+      Number(detailC.data?.disbursement?.pending_amount) === 100000,
+    JSON.stringify(detailC.data?.disbursement),
+  );
+
+  const earlyApprove = await request('POST', `/admin/payouts/${autoPayout?.id}/approve`, { token: admin.token });
+  check(
+    'Admin bị chặn giải ngân trước ngày kết thúc',
+    earlyApprove.status === 400,
+    JSON.stringify(earlyApprove.data),
+  );
+
+  const duplicatePayout = await request('POST', `/projects/${projectC}/payouts`, {
+    token: newToken,
+    body: { amount: 100000 },
+  });
+  check(
+    'Owner không thể yêu cầu trùng khi đã có khoản chờ duyệt',
+    duplicatePayout.status === 400,
+    JSON.stringify(duplicatePayout.data),
+  );
+
+  const closeC = await request('POST', `/projects/${projectC}/close`, {
+    token: newToken,
+    body: { outcome: 'failed' },
+  });
+  check(
+    'Không thể đổi trạng thái dự án đã hoàn thành',
+    closeC.status === 400,
+    JSON.stringify(closeC.data),
+  );
+
+  if (db) {
+    await db.query(
+      `update projects set start_date = current_date - 10, end_date = current_date - 1 where id = $1`,
+      [projectC],
+    );
+    check('Mô phỏng tới hạn chiến dịch', true);
+
+    const adminPayouts = await request('GET', '/admin/payouts', { token: admin.token });
+    const targetPayout = adminPayouts.data?.items?.find((item) => item.project_id === projectC);
+    check(
+      'Admin thấy yêu cầu đủ điều kiện giải ngân sau hạn',
+      targetPayout?.can_disburse === true,
+      JSON.stringify(targetPayout),
+    );
+
+    const approveC = await request('POST', `/admin/payouts/${autoPayout?.id}/approve`, { token: admin.token });
+    check(
+      'Duyệt giải ngân ghi người duyệt và thời điểm',
+      approveC.status === 200 &&
+        approveC.data?.transaction?.status === 'success' &&
+        approveC.data?.transaction?.processed_by === admin.user.id &&
+        !!approveC.data?.transaction?.processed_at,
+      JSON.stringify(approveC.data),
+    );
+
+    const afterDisburse = await request('GET', `/projects/${projectC}`, { token: newToken });
+    check(
+      'Dự án chuyển sang đang triển khai sau giải ngân',
+      afterDisburse.data?.status === 'in_progress',
+      JSON.stringify({ status: afterDisburse.data?.status }),
+    );
+    check(
+      'Chi tiết có số tiền, ngày và người giải ngân',
+      afterDisburse.data?.disbursement?.status === 'disbursed' &&
+        Number(afterDisburse.data?.disbursement?.amount) === 100000 &&
+        !!afterDisburse.data?.disbursement?.disbursed_at &&
+        !!afterDisburse.data?.disbursement?.disbursed_by_name,
+      JSON.stringify(afterDisburse.data?.disbursement),
+    );
+
+    const updateC = await request('POST', `/projects/${projectC}/updates`, {
+      token: newToken,
+      body: { title: 'Báo cáo sau giải ngân', content: 'Chủ dự án cập nhật tiến độ sau khi nhận tiền giải ngân từ quản trị viên.' },
+    });
+    check('Chủ dự án cập nhật tiến độ sau giải ngân', updateC.status === 201, JSON.stringify(updateC.data));
+
+    const closeInProgress = await request('POST', `/projects/${projectC}/close`, {
+      token: newToken,
+      body: { outcome: 'failed' },
+    });
+    check(
+      'Không thể đổi trạng thái khi đang triển khai',
+      closeInProgress.status === 400,
+      JSON.stringify(closeInProgress.data),
+    );
+  } else {
+    check('Mô phỏng tới hạn chiến dịch', false, 'Thiếu DATABASE_URL để cập nhật ngày kết thúc.');
+  }
+
   section('Admin');
   const stats = await request('GET', '/admin/stats', { token: admin.token });
   check('Thống kê admin', stats.status === 200 && Number(stats.data?.total_projects) >= 200, `total=${stats.data?.total_projects}`);
@@ -548,9 +686,10 @@ async function main() {
 
   const payouts = await request('GET', '/admin/payouts', { token: admin.token });
   check('Danh sách giải ngân', payouts.status === 200 && payouts.data.items.length >= 1);
-  const pendingPayout = payouts.data.items.find((p) => p.status === 'pending' && p.project_id === projectA);
-  const approvePayout = await request('POST', `/admin/payouts/${pendingPayout?.id}/approve`, { token: admin.token });
-  check('Duyệt giải ngân', approvePayout.status === 200 && approvePayout.data?.transaction?.status === 'success');
+  check(
+    'Danh sách giải ngân có trạng thái dự án và điều kiện duyệt',
+    payouts.data.items.every((p) => typeof p.can_disburse === 'boolean' && !!p.project_status),
+  );
 
   const users = await request('GET', '/admin/users', { token: admin.token });
   check('Danh sách người dùng', users.status === 200 && users.data.items.length >= 1000, `count=${users.data?.items?.length}`);

@@ -3,6 +3,7 @@ export const statusVi = {
   pending_review: 'Chờ duyệt',
   active: 'Đang gây quỹ',
   successful: 'Thành công',
+  in_progress: 'Đang triển khai',
   failed: 'Thất bại',
   canceled: 'Đã dừng',
   suspended: 'Tạm ngưng',
@@ -25,6 +26,11 @@ export const transactionStatusVi = {
   pending: 'Chờ duyệt',
   success: 'Thành công',
   failed: 'Thất bại',
+};
+
+export const disbursementStatusVi = {
+  disbursed: 'Đã giải ngân',
+  not_disbursed: 'Chưa giải ngân',
 };
 
 export const roleVi = {

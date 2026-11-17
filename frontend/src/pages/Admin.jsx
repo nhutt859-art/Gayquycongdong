@@ -21,6 +21,7 @@ import {
   kycVi,
   modelVersionLabel,
   roleVi,
+  statusVi,
   transactionStatusVi,
   vnd,
 } from '../lib/format';
@@ -487,28 +488,53 @@ export function Admin({ tab = 'tong-quan' }) {
           </div>
           {payouts.length === 0 && <EmptyState icon="🏦" title="Chưa có yêu cầu giải ngân" />}
           {payouts.map((p) => (
-            <div key={p.id} className="card flex flex-wrap items-center gap-3 p-4 text-sm">
-              <div className="min-w-52 flex-1">
-                <b>{p.project_title}</b>
-                <div className="text-xs text-slate-500">{p.owner_name} · {p.owner_email}</div>
-                <div className="mt-1 text-xs text-slate-500">
-                  Số tiền <b className="text-slate-700">{vnd(p.amount)}</b> · Dự án đã huy động {vnd(p.current_amount)} · {formatDate(p.created_at)}
+            <div key={p.id} className="card space-y-2 p-4 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-52 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <b>{p.project_title}</b>
+                    <span className={`badge ${p.project_status === 'successful' ? 'bg-blue-100 text-blue-700' : p.project_status === 'in_progress' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
+                      {statusVi[p.project_status] || p.project_status}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-500">{p.owner_name} · {p.owner_email}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Số tiền <b className="text-slate-700">{vnd(p.amount)}</b> · Dự án đã huy động {vnd(p.current_amount)} · Kết thúc {formatDate(p.end_date)}
+                  </div>
+                  <div className="text-[11px] text-slate-400">{p.gateway_ref}</div>
+                  {p.processed_at && (
+                    <div className="text-[11px] text-slate-500">
+                      Xử lý bởi {p.processed_by_name || 'Quản trị viên'} · {formatDateTime(p.processed_at)}
+                    </div>
+                  )}
                 </div>
-                <div className="text-[11px] text-slate-400">{p.gateway_ref}</div>
+                <span className={`badge ${p.status === 'success' ? 'bg-emerald-100 text-emerald-700' : p.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                  {transactionStatusVi[p.status] || p.status}
+                </span>
+                {p.status === 'pending' && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="btn-primary text-sm disabled:opacity-50"
+                      disabled={busy === p.id || !p.can_disburse}
+                      title={p.can_disburse ? 'Duyệt giải ngân' : p.block_reason || 'Chưa thể giải ngân'}
+                      onClick={() => reviewPayout(p, 'approve')}
+                    >
+                      Duyệt
+                    </button>
+                    <button className="btn-ghost border-red-300 text-sm text-red-700 disabled:opacity-60" disabled={busy === p.id} onClick={() => reviewPayout(p, 'reject')}>
+                      Từ chối
+                    </button>
+                  </div>
+                )}
               </div>
-              <span className={`badge ${p.status === 'success' ? 'bg-emerald-100 text-emerald-700' : p.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                {transactionStatusVi[p.status] || p.status}
-              </span>
-              {p.status === 'pending' && (
-                <div className="flex gap-2">
-                  <button className="btn-primary text-sm disabled:opacity-60" disabled={busy === p.id} onClick={() => reviewPayout(p, 'approve')}>Duyệt</button>
-                  <button className="btn-ghost border-red-300 text-sm text-red-700 disabled:opacity-60" disabled={busy === p.id} onClick={() => reviewPayout(p, 'reject')}>Từ chối</button>
-                </div>
+              {p.status === 'pending' && !p.can_disburse && p.block_reason && (
+                <div className="rounded-xl bg-amber-50 p-2 text-xs text-amber-700">{p.block_reason}</div>
               )}
             </div>
           ))}
           <div className="card p-4 text-xs text-slate-500">
-            Dự án thất bại hoặc đã dừng sẽ được hoàn tiền cho nhà tài trợ thay vì giải ngân.
+            Chỉ dự án đã hoàn thành và tới ngày kết thúc mới được giải ngân. Khi duyệt, dự án chuyển sang trạng thái
+            “Đang triển khai”. Dự án thất bại hoặc đã dừng sẽ được hoàn tiền cho nhà tài trợ thay vì giải ngân.
           </div>
         </>
       )}

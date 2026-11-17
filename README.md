@@ -203,11 +203,14 @@ Tài khoản quản trị production dùng tài khoản thật đã được gi�
 - Xem dự báo thành công kèm đóng góp tín hiệu và bằng chứng gian lận của dự án.
 - Quản lý thông tin, đóng chiến dịch, đăng bản tin, CRUD gói tri ân.
 - Mời/chấp nhận cộng tác viên; xem nhà tài trợ; gửi yêu cầu giải ngân.
+- Dự án tự động chuyển “Thành công” khi đạt mục tiêu (kể cả trước hạn), ngừng nhận tài trợ và tạo yêu cầu giải ngân chờ duyệt.
+- Theo dõi trạng thái giải ngân (đã/chưa giải ngân, số tiền, ngày và người giải ngân); sau khi nhận tiền dự án chuyển sang “Đang triển khai” để chủ dự án cập nhật tiến độ.
 
 **Quản trị viên**
 - Thống kê tổng quan, model card của mô hình dự đoán và mô hình gian lận.
-- Duyệt/từ chối dự án kèm lý do; hoàn tiền.
-- Duyệt/từ chối giải ngân; xử lý báo cáo và cảnh báo gian lận kèm bằng chứng.
+- Duyệt/từ chối dự án kèm lý do; hoàn tiền cho nhà tài trợ khi dự án thất bại/đã dừng.
+- Duyệt/từ chối giải ngân; chỉ cho giải ngân khi dự án đã hoàn thành và tới ngày kết thúc; duyệt xong ghi người duyệt, thời điểm và chuyển dự án sang “Đang triển khai”.
+- Xử lý báo cáo và cảnh báo gian lận kèm bằng chứng.
 - Khóa/mở khóa người dùng; CRUD danh mục.
 
 ## Công nghệ

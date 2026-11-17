@@ -10,6 +10,7 @@ const STATUS_OPTIONS = [
   ['', 'Mọi trạng thái'],
   ['active', 'Đang gây quỹ'],
   ['successful', 'Thành công'],
+  ['in_progress', 'Đang triển khai'],
   ['failed', 'Thất bại'],
   ['canceled', 'Đã dừng'],
 ];

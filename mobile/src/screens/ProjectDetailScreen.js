@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
-import { asArray, daysLeft, formatDate, timeAgo, vnd } from '../lib/format';
+import { asArray, daysLeft, disbursementStatusVi, formatDate, formatDateTime, timeAgo, vnd } from '../lib/format';
 import { colors, radius } from '../theme';
 import {
   AIBox,
@@ -225,8 +225,16 @@ export default function ProjectDetailScreen({ navigation, route }) {
   else if (project.owner_id === currentUser.id) donateMessage = 'Bạn không thể tài trợ chính dự án của mình.';
   else if (currentUser.role === 'admin') donateMessage = 'Quản trị viên không thực hiện tài trợ.';
   else if (project.status === 'suspended') donateMessage = 'Dự án đang tạm ngưng do chủ dự án bị khóa tài khoản.';
+  else if (project.status === 'successful') donateMessage = 'Dự án đã đạt mục tiêu và ngừng nhận tài trợ.';
+  else if (project.status === 'in_progress') donateMessage = 'Dự án đang triển khai và không nhận tài trợ mới.';
   else if (project.status !== 'active') donateMessage = 'Dự án không ở trạng thái đang gây quỹ.';
   else if (ended) donateMessage = 'Chiến dịch đã hết hạn.';
+
+  const disbursement = project.disbursement || null;
+  const showDisbursement =
+    ['successful', 'in_progress'].includes(project.status) ||
+    disbursement?.is_disbursed ||
+    Number(disbursement?.pending_amount || 0) > 0;
 
   return (
     <Screen>
@@ -315,6 +323,39 @@ export default function ProjectDetailScreen({ navigation, route }) {
             Chủ dự án bị khóa tài khoản nên các thao tác quản lý, cập nhật tiến độ, nhận tài trợ và giải ngân đang tạm khóa.
             Dự án sẽ hoạt động trở lại khi quản trị viên mở khóa tài khoản chủ dự án.
           </Text>
+        </Card>
+      ) : null}
+
+      {showDisbursement && disbursement ? (
+        <Card style={{ padding: 14, marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 13, fontWeight: '800' }}>Giải ngân dự án</Text>
+            <Badge
+              label={disbursementStatusVi[disbursement.status] || disbursement.status}
+              tone={disbursement.is_disbursed ? 'emerald' : 'amber'}
+            />
+          </View>
+          <View style={{ flexDirection: 'row', marginTop: 10 }}>
+            <View style={{ flex: 1, backgroundColor: colors.slateSoft, borderRadius: 9, padding: 9, marginRight: 6 }}>
+              <Text style={{ fontSize: 10, color: colors.muted }}>Đã giải ngân</Text>
+              <Text style={{ fontSize: 14, fontWeight: '800' }}>{vnd(disbursement.amount)}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: colors.slateSoft, borderRadius: 9, padding: 9 }}>
+              <Text style={{ fontSize: 10, color: colors.muted }}>Chờ duyệt</Text>
+              <Text style={{ fontSize: 14, fontWeight: '800' }}>{vnd(disbursement.pending_amount)}</Text>
+            </View>
+          </View>
+          {disbursement.is_disbursed ? (
+            <Text style={{ fontSize: 11, color: colors.muted, marginTop: 8, lineHeight: 16 }}>
+              Ngày giải ngân: <Text style={{ fontWeight: '700', color: colors.text }}>{formatDateTime(disbursement.disbursed_at)}</Text>
+              {'\n'}Người giải ngân: <Text style={{ fontWeight: '700', color: colors.text }}>{disbursement.disbursed_by_name || 'Quản trị viên'}</Text>
+            </Text>
+          ) : null}
+          {disbursement.block_reason ? (
+            <View style={{ backgroundColor: colors.amberSoft, borderRadius: 9, padding: 8, marginTop: 8 }}>
+              <Text style={{ fontSize: 11, color: colors.amber }}>{disbursement.block_reason}</Text>
+            </View>
+          ) : null}
         </Card>
       ) : null}
 

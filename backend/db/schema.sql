@@ -42,7 +42,7 @@ DROP TYPE IF EXISTS report_status CASCADE;
 CREATE TYPE user_role            AS ENUM ('backer', 'owner', 'admin');
 CREATE TYPE kyc_status           AS ENUM ('none', 'pending', 'verified');
 CREATE TYPE user_status          AS ENUM ('active', 'locked');
-CREATE TYPE project_status       AS ENUM ('draft', 'pending_review', 'active', 'successful', 'failed', 'canceled', 'suspended');
+CREATE TYPE project_status       AS ENUM ('draft', 'pending_review', 'active', 'successful', 'in_progress', 'failed', 'canceled', 'suspended');
 CREATE TYPE collaborator_role    AS ENUM ('editor', 'moderator');
 CREATE TYPE pledge_status        AS ENUM ('pending', 'paid', 'refunded', 'failed');
 CREATE TYPE transaction_type     AS ENUM ('payment', 'refund', 'payout');
@@ -130,6 +130,7 @@ CREATE TABLE projects (
   end_date         DATE NOT NULL,
   status           project_status NOT NULL DEFAULT 'draft',
   suspended_from_status project_status,
+  completed_at     TIMESTAMPTZ,
   ai_success_score NUMERIC(5,2) NOT NULL DEFAULT 50 CHECK (ai_success_score BETWEEN 0 AND 100),
   fraud_risk_score NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (fraud_risk_score BETWEEN 0 AND 100),
   reject_reason    TEXT,
@@ -191,6 +192,8 @@ CREATE TABLE transactions (
   method      VARCHAR(30),
   gateway_ref VARCHAR(80),
   status      transaction_status NOT NULL DEFAULT 'pending',
+  processed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  processed_at TIMESTAMPTZ,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

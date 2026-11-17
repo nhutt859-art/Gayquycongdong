@@ -6,6 +6,7 @@ import { useApp } from '../context/AppContext';
 import {
   asArray,
   daysLeft,
+  disbursementStatusVi,
   formatDate,
   formatDateTime,
   pledgeStatusVi,
@@ -759,14 +760,51 @@ export default function ManageProjectScreen({ navigation, route }) {
       {tab === 'finance' ? (
         <View>
           <Card style={{ padding: 14 }}>
-            <SectionHeader title="Giải ngân" subtitle={`Có thể rút: ${vnd(project.available_for_payout || 0)}`} />
-            <Input
-              label="Số tiền yêu cầu (đ)"
-              value={payoutAmount}
-              onChangeText={(v) => setPayoutAmount(v.replace(/[^0-9]/g, ''))}
-              keyboardType="number-pad"
-            />
-            <Button title="Gửi yêu cầu giải ngân" onPress={requestPayout} loading={payoutBusy} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <SectionHeader title="Giải ngân" subtitle={`Có thể rút: ${vnd(project.available_for_payout || 0)}`} />
+              <Badge
+                label={disbursementStatusVi[project.disbursement?.status] || 'Chưa giải ngân'}
+                tone={project.disbursement?.is_disbursed ? 'emerald' : 'amber'}
+              />
+            </View>
+            <View style={{ flexDirection: 'row', marginBottom: 10 }}>
+              <View style={{ flex: 1, backgroundColor: colors.slateSoft, borderRadius: 9, padding: 9, marginRight: 6 }}>
+                <Text style={{ fontSize: 10, color: colors.muted }}>Đã giải ngân</Text>
+                <Text style={{ fontSize: 14, fontWeight: '800' }}>{vnd(project.disbursement?.amount || 0)}</Text>
+              </View>
+              <View style={{ flex: 1, backgroundColor: colors.slateSoft, borderRadius: 9, padding: 9 }}>
+                <Text style={{ fontSize: 10, color: colors.muted }}>Chờ duyệt</Text>
+                <Text style={{ fontSize: 14, fontWeight: '800' }}>{vnd(project.disbursement?.pending_amount || 0)}</Text>
+              </View>
+            </View>
+            {project.disbursement?.is_disbursed ? (
+              <Text style={{ fontSize: 11, color: colors.muted, marginBottom: 10, lineHeight: 16 }}>
+                Ngày giải ngân: <Text style={{ fontWeight: '700', color: colors.text }}>{formatDateTime(project.disbursement.disbursed_at)}</Text>
+                {'\n'}Người giải ngân: <Text style={{ fontWeight: '700', color: colors.text }}>{project.disbursement.disbursed_by_name || 'Quản trị viên'}</Text>
+              </Text>
+            ) : null}
+            {project.can_request_payout ? (
+              <>
+                <Input
+                  label="Số tiền yêu cầu (đ)"
+                  value={payoutAmount}
+                  onChangeText={(v) => setPayoutAmount(v.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                />
+                <Button title="Gửi yêu cầu giải ngân" onPress={requestPayout} loading={payoutBusy} />
+              </>
+            ) : (
+              <View style={{ backgroundColor: colors.amberSoft, borderRadius: 9, padding: 9 }}>
+                <Text style={{ fontSize: 11, color: colors.amber, lineHeight: 16 }}>
+                  {project.disbursement?.pending_amount > 0
+                    ? `Yêu cầu giải ngân ${vnd(project.disbursement.pending_amount)} đã được tạo tự động. Admin chỉ có thể duyệt từ ngày ${formatDate(project.disbursement.due_date)}.`
+                    : project.disbursement?.block_reason || 'Chưa thể yêu cầu giải ngân.'}
+                </Text>
+              </View>
+            )}
+            <Text style={{ fontSize: 10, color: colors.soft, marginTop: 8 }}>
+              Chỉ giải ngân khi dự án hoàn thành và tới ngày kết thúc. Sau khi nhận tiền, dự án chuyển sang “Đang triển khai”.
+            </Text>
           </Card>
 
           <SectionHeader title="Lịch sử giải ngân" subtitle={`${project.payouts?.length || 0} giao dịch`} />
@@ -781,6 +819,11 @@ export default function ManageProjectScreen({ navigation, route }) {
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 12, fontWeight: '700' }}>{vnd(p.amount)} · {p.method}</Text>
                     <Text style={{ fontSize: 10, color: colors.muted }}>{formatDate(p.created_at)} · {p.gateway_ref}</Text>
+                    {p.processed_at ? (
+                      <Text style={{ fontSize: 10, color: colors.muted }}>
+                        Xử lý bởi {p.processed_by_name || 'Quản trị viên'} · {formatDateTime(p.processed_at)}
+                      </Text>
+                    ) : null}
                   </View>
                   <Badge
                     label={transactionStatusVi[p.status] || p.status}
@@ -844,6 +887,9 @@ export default function ManageProjectScreen({ navigation, route }) {
                 ))}
               </View>
               <Button title="Kết thúc chiến dịch" variant="danger" loading={closeBusy} onPress={closeProject} />
+              <Text style={{ fontSize: 10, color: colors.amber, marginTop: 6 }}>
+                Chỉ đánh dấu thành công khi dự án đã đạt mục tiêu. Nếu chưa đạt, chọn Thất bại hoặc Dừng.
+              </Text>
             </Card>
           ) : null}
         </View>

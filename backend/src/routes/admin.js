@@ -40,7 +40,7 @@ router.get(
       select
         (select coalesce(sum(current_amount), 0) from projects)::numeric as total_raised,
         (select count(*) from projects where status = 'active')::int as active_projects,
-        (select count(*) from projects where status = 'successful')::int as successful_projects,
+        (select count(*) from projects where status in ('successful', 'in_progress'))::int as successful_projects,
         (select count(*) from projects where status = 'failed')::int as failed_projects,
         (select count(*) from projects)::int as total_projects,
         (select count(*) from fraud_flags where review_status = 'pending')::int as open_flags,
@@ -232,6 +232,22 @@ router.post(
 // ============================================================
 // GIẢI NGÂN
 // ============================================================
+async function notifyProjectAudience(db, projectId, { type = 'payout', content, link, excludeUserId = null }) {
+  await db.query(
+    `insert into notifications (user_id, type, content, link)
+     select distinct x.user_id, $2, $3, $4
+       from (
+         select user_id from follows where project_id = $1
+         union
+         select backer_id from pledges where project_id = $1 and status = 'paid'
+         union
+         select user_id from project_collaborators where project_id = $1 and accepted_at is not null
+       ) x
+      where ($5::uuid is null or x.user_id <> $5)`,
+    [projectId, type, content, link, excludeUserId],
+  );
+}
+
 router.get(
   '/payouts',
   asyncHandler(async (req, res) => {
@@ -244,60 +260,149 @@ router.get(
     }
     const { rows } = await query(
       `select t.id, t.amount, t.status, t.method, t.gateway_ref, t.created_at,
+              t.processed_by, t.processed_at,
               p.id as project_id, p.title as project_title, p.current_amount,
-              u.id as owner_id, u.full_name as owner_name, u.email as owner_email
+              p.status as project_status, p.end_date, p.completed_at,
+              u.id as owner_id, u.full_name as owner_name, u.email as owner_email,
+              a.full_name as processed_by_name,
+              case
+                when t.status = 'pending'
+                 and p.status in ('successful', 'in_progress')
+                 and p.end_date <= current_date then true
+                else false
+              end as can_disburse,
+              case
+                when t.status <> 'pending' then null
+                when p.status not in ('successful', 'in_progress') then 'Dự án chưa hoàn thành.'
+                when p.end_date > current_date
+                  then 'Chờ tới ngày kết thúc ' || to_char(p.end_date, 'DD/MM/YYYY') || ' mới được giải ngân.'
+                else null
+              end as block_reason
          from transactions t
          join projects p on p.id = t.project_id
          join users u on u.id = p.owner_id
+         left join users a on a.id = t.processed_by
         where t.type = 'payout' ${extra}
         order by case when t.status = 'pending' then 0 else 1 end, t.created_at desc`,
       params,
     );
-    res.json({ items: rows.map((r) => ({ ...r, amount: Number(r.amount), current_amount: Number(r.current_amount) })) });
+    res.json({
+      items: rows.map((r) => ({
+        ...r,
+        amount: Number(r.amount),
+        current_amount: Number(r.current_amount),
+      })),
+    });
   }),
 );
 
 router.post(
   '/payouts/:id/approve',
   asyncHandler(async (req, res) => {
-    const { rows } = await query(
-      `update transactions set status = 'success'
-        where id = $1 and type = 'payout' and status = 'pending' returning *`,
-      [req.params.id],
-    );
-    if (!rows.length) throw new ApiError(400, 'Yêu cầu giải ngân không ở trạng thái chờ duyệt.');
-    const payout = rows[0];
+    const payout = await withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `select t.*, p.owner_id, p.title, p.status as project_status, p.end_date
+           from transactions t
+           join projects p on p.id = t.project_id
+          where t.id = $1 and t.type = 'payout'
+          for update of t, p`,
+        [req.params.id],
+      );
+      if (!rows.length) throw new ApiError(404, 'Không tìm thấy yêu cầu giải ngân.');
+      const row = rows[0];
+      if (row.status !== 'pending') {
+        throw new ApiError(400, 'Yêu cầu giải ngân không ở trạng thái chờ duyệt.');
+      }
+      if (!['successful', 'in_progress'].includes(row.project_status)) {
+        throw new ApiError(400, 'Dự án chưa hoàn thành nên chưa thể giải ngân.');
+      }
+      if (row.end_date > new Date().toISOString().slice(0, 10)) {
+        throw new ApiError(
+          400,
+          `Chưa tới ngày kết thúc chiến dịch (${String(row.end_date).split('-').reverse().join('/')}). Chỉ được giải ngân đúng hạn.`,
+        );
+      }
 
-    const project = await query('select owner_id, title from projects where id = $1', [payout.project_id]);
-    await notify(pool, project.rows[0].owner_id, {
-      type: 'payout',
-      content: `Yêu cầu giải ngân ${Number(payout.amount).toLocaleString('vi-VN')}đ cho “${project.rows[0].title}” đã được duyệt.`,
-      link: `/quan-ly/${payout.project_id}`,
+      const updated = await client.query(
+        `update transactions
+            set status = 'success', processed_by = $1, processed_at = now()
+          where id = $2
+          returning *`,
+        [req.user.id, row.id],
+      );
+
+      if (row.project_status === 'successful') {
+        await client.query(
+          `update projects
+              set status = 'in_progress',
+                  completed_at = coalesce(completed_at, now())
+            where id = $1`,
+          [row.project_id],
+        );
+      }
+
+      const amountText = Number(row.amount).toLocaleString('vi-VN');
+      const link = `/quan-ly/${row.project_id}`;
+      await notify(client, row.owner_id, {
+        type: 'payout',
+        content: `Dự án “${row.title}” đã được giải ngân ${amountText}đ. Dự án chuyển sang trạng thái “Đang triển khai”; bạn có thể cập nhật tiến độ.`,
+        link,
+      });
+      await notifyProjectAudience(client, row.project_id, {
+        type: 'payout',
+        content: `Dự án “${row.title}” đã được giải ngân ${amountText}đ và chuyển sang trạng thái đang triển khai.`,
+        link: `/du-an/${row.project_id}`,
+      });
+
+      return updated.rows[0];
     });
 
-    res.json({ transaction: { ...payout, amount: Number(payout.amount) }, message: 'Đã duyệt giải ngân.' });
+    res.json({
+      transaction: { ...payout, amount: Number(payout.amount) },
+      message: 'Đã duyệt giải ngân và chuyển dự án sang trạng thái đang triển khai.',
+    });
   }),
 );
 
 router.post(
   '/payouts/:id/reject',
   asyncHandler(async (req, res) => {
-    const { rows } = await query(
-      `update transactions set status = 'failed'
-        where id = $1 and type = 'payout' and status = 'pending' returning *`,
-      [req.params.id],
-    );
-    if (!rows.length) throw new ApiError(400, 'Yêu cầu giải ngân không ở trạng thái chờ duyệt.');
-    const payout = rows[0];
+    const payout = await withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `select t.*, p.owner_id, p.title
+           from transactions t
+           join projects p on p.id = t.project_id
+          where t.id = $1 and t.type = 'payout'
+          for update of t`,
+        [req.params.id],
+      );
+      if (!rows.length) throw new ApiError(404, 'Không tìm thấy yêu cầu giải ngân.');
+      const row = rows[0];
+      if (row.status !== 'pending') {
+        throw new ApiError(400, 'Yêu cầu giải ngân không ở trạng thái chờ duyệt.');
+      }
 
-    const project = await query('select owner_id, title from projects where id = $1', [payout.project_id]);
-    await notify(pool, project.rows[0].owner_id, {
-      type: 'payout',
-      content: `Yêu cầu giải ngân ${Number(payout.amount).toLocaleString('vi-VN')}đ cho “${project.rows[0].title}” bị từ chối.`,
-      link: `/quan-ly/${payout.project_id}`,
+      const updated = await client.query(
+        `update transactions
+            set status = 'failed', processed_by = $1, processed_at = now()
+          where id = $2
+          returning *`,
+        [req.user.id, row.id],
+      );
+
+      await notify(client, row.owner_id, {
+        type: 'payout',
+        content: `Yêu cầu giải ngân ${Number(row.amount).toLocaleString('vi-VN')}đ cho “${row.title}” bị từ chối.`,
+        link: `/quan-ly/${row.project_id}`,
+      });
+
+      return updated.rows[0];
     });
 
-    res.json({ transaction: { ...payout, amount: Number(payout.amount) }, message: 'Đã từ chối giải ngân.' });
+    res.json({
+      transaction: { ...payout, amount: Number(payout.amount) },
+      message: 'Đã từ chối giải ngân.',
+    });
   }),
 );
 

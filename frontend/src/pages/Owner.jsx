@@ -17,6 +17,7 @@ import {
 } from '../components/ui';
 import {
   daysLeft,
+  disbursementStatusVi,
   formatDate,
   formatDateTime,
   pledgeStatusVi,
@@ -643,6 +644,9 @@ export function ManageProject() {
                   <option value="failed">Thất bại</option>
                   <option value="canceled">Đã dừng</option>
                 </select>
+                <p className="mt-2 text-xs text-amber-700">
+                  Chỉ đánh dấu thành công khi dự án đã đạt mục tiêu. Nếu chưa đạt, chọn Thất bại hoặc Đã dừng.
+                </p>
                 <button className="btn-ghost mt-2 w-full border-red-300 text-sm text-red-700 disabled:opacity-50" disabled={!canClose} onClick={() => setCloseOpen(true)}>
                   {canClose ? 'Đóng chiến dịch' : 'Chiến dịch đã kết thúc'}
                 </button>
@@ -847,22 +851,55 @@ export function ManageProject() {
 
       {tab === 'tai-chinh' && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="card p-4"><div className="text-xs text-slate-500">Đã huy động</div><div className="text-2xl font-bold text-emerald-700">{vnd(project.current_amount)}</div></div>
+            <div className="card p-4">
+              <div className="text-xs text-slate-500">Đã giải ngân</div>
+              <div className="text-2xl font-bold text-blue-700">{vnd(project.disbursement?.amount || 0)}</div>
+              <div className="mt-1 text-xs text-slate-500">{disbursementStatusVi[project.disbursement?.status] || 'Chưa giải ngân'}</div>
+            </div>
             <div className="card p-4"><div className="text-xs text-slate-500">Khả dụng để giải ngân</div><div className="text-2xl font-bold">{vnd(project.available_for_payout)}</div></div>
             <div className="card p-4"><div className="text-xs text-slate-500">Nhà tài trợ</div><div className="text-2xl font-bold">{project.backer_count}</div></div>
           </div>
 
+          {project.disbursement?.is_disbursed && (
+            <div className="card flex flex-wrap items-center justify-between gap-2 p-4 text-sm">
+              <div>
+                <b>Đã giải ngân {vnd(project.disbursement.latest_amount)}</b>
+                <div className="text-xs text-slate-500">
+                  Ngày giải ngân {formatDateTime(project.disbursement.disbursed_at)} · Người giải ngân{' '}
+                  <b>{project.disbursement.disbursed_by_name || 'Quản trị viên'}</b>
+                </div>
+              </div>
+              {project.disbursement.pending_amount > 0 && (
+                <span className="badge bg-amber-100 text-amber-700">Còn {vnd(project.disbursement.pending_amount)} chờ duyệt</span>
+              )}
+            </div>
+          )}
+
           <div className="grid gap-4 md:grid-cols-3">
             {isOwner && (
-              <form className="card space-y-3 p-5" onSubmit={requestPayout}>
+              <div className="card space-y-3 p-5">
                 <h2 className="font-bold">Yêu cầu giải ngân</h2>
-                <p className="text-xs text-slate-500">Tối đa {vnd(project.available_for_payout)}. Admin sẽ duyệt trước khi chuyển tiền.</p>
-                <input type="number" min="100000" className="input" value={payoutAmount} onChange={(e) => setPayoutAmount(e.target.value)} />
-                <button className="btn-primary w-full text-sm disabled:opacity-60" type="submit" disabled={payoutBusy || project.available_for_payout <= 0}>
-                  {payoutBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang gửi…</> : 'Gửi yêu cầu'}
-                </button>
-              </form>
+                {project.can_request_payout ? (
+                  <form className="space-y-3" onSubmit={requestPayout}>
+                    <p className="text-xs text-slate-500">Tối đa {vnd(project.available_for_payout)}. Admin sẽ duyệt trước khi chuyển tiền.</p>
+                    <input type="number" min="100000" className="input" value={payoutAmount} onChange={(e) => setPayoutAmount(e.target.value)} />
+                    <button className="btn-primary w-full text-sm disabled:opacity-60" type="submit" disabled={payoutBusy}>
+                      {payoutBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang gửi…</> : 'Gửi yêu cầu'}
+                    </button>
+                  </form>
+                ) : (
+                  <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
+                    {project.disbursement?.pending_amount > 0
+                      ? `Yêu cầu giải ngân ${vnd(project.disbursement.pending_amount)} đã được tạo tự động. Admin chỉ có thể duyệt từ ngày ${formatDate(project.disbursement.due_date)}.`
+                      : project.disbursement?.block_reason || 'Chưa thể yêu cầu giải ngân.'}
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-400">
+                  Chỉ dự án đã hoàn thành và tới ngày kết thúc mới được giải ngân. Sau khi nhận tiền, dự án chuyển sang trạng thái “Đang triển khai”.
+                </p>
+              </div>
             )}
 
             <div className={`card space-y-2 p-5 ${isOwner ? 'md:col-span-2' : 'md:col-span-3'}`}>
@@ -873,6 +910,11 @@ export function ManageProject() {
                   <div>
                     <b>{vnd(t.amount)}</b>
                     <div className="text-xs text-slate-500">{t.gateway_ref} · {formatDate(t.created_at)}</div>
+                    {t.processed_at && (
+                      <div className="text-xs text-slate-500">
+                        Xử lý bởi {t.processed_by_name || 'Quản trị viên'} · {formatDateTime(t.processed_at)}
+                      </div>
+                    )}
                   </div>
                   <span className={`badge ${t.status === 'success' ? 'bg-emerald-100 text-emerald-700' : t.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
                     {transactionStatusVi[t.status] || t.status}

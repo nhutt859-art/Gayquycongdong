@@ -14,7 +14,7 @@ import {
   Spinner,
   StatusBadge,
 } from '../components/ui';
-import { daysLeft, formatDate, formatDateTime, percent, timeAgo, vnd } from '../lib/format';
+import { daysLeft, disbursementStatusVi, formatDate, formatDateTime, percent, timeAgo, vnd } from '../lib/format';
 import { parseImageList } from '../lib/images';
 
 const TABS = [
@@ -206,8 +206,16 @@ export default function ProjectDetail() {
   else if (project.owner_id === currentUser.id) donateMessage = 'Bạn không thể tài trợ chính dự án của mình.';
   else if (currentUser.role === 'admin') donateMessage = 'Quản trị viên không thực hiện tài trợ.';
   else if (project.status === 'suspended') donateMessage = 'Dự án đang tạm ngưng do chủ dự án bị khóa tài khoản.';
+  else if (project.status === 'successful') donateMessage = 'Dự án đã đạt mục tiêu và ngừng nhận tài trợ.';
+  else if (project.status === 'in_progress') donateMessage = 'Dự án đang triển khai và không nhận tài trợ mới.';
   else if (project.status !== 'active') donateMessage = 'Dự án không ở trạng thái đang gây quỹ.';
   else if (ended) donateMessage = 'Chiến dịch đã hết hạn.';
+
+  const disbursement = project.disbursement || null;
+  const showDisbursement =
+    ['successful', 'in_progress'].includes(project.status) ||
+    disbursement?.is_disbursed ||
+    Number(disbursement?.pending_amount || 0) > 0;
 
   return (
     <div className="space-y-4">
@@ -456,6 +464,37 @@ export default function ProjectDetail() {
               Khoản tài trợ được xác nhận và cập nhật ngay vào tiến độ dự án. Hệ thống tự động kiểm tra rủi ro giao dịch.
             </div>
           </div>
+
+          {showDisbursement && disbursement && (
+            <div className="card space-y-2 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-bold">Giải ngân dự án</h3>
+                <span className={`badge ${disbursement.is_disbursed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {disbursementStatusVi[disbursement.status] || disbursement.status}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-xl bg-slate-50 p-2">
+                  <div className="text-xs text-slate-500">Đã giải ngân</div>
+                  <b>{vnd(disbursement.amount)}</b>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-2">
+                  <div className="text-xs text-slate-500">Chờ duyệt</div>
+                  <b>{vnd(disbursement.pending_amount)}</b>
+                </div>
+              </div>
+              {disbursement.is_disbursed && (
+                <div className="text-xs text-slate-500">
+                  Ngày giải ngân: <b>{formatDateTime(disbursement.disbursed_at)}</b>
+                  <br />
+                  Người giải ngân: <b>{disbursement.disbursed_by_name || 'Quản trị viên'}</b>
+                </div>
+              )}
+              {disbursement.block_reason && (
+                <div className="rounded-xl bg-amber-50 p-2 text-xs text-amber-700">{disbursement.block_reason}</div>
+              )}
+            </div>
+          )}
 
           <div className="card space-y-2 p-5">
             <h3 className="font-bold">Đội ngũ dự án</h3>

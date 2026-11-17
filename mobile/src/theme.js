@@ -46,6 +46,7 @@ export const statusTone = {
   pending_review: { bg: colors.amberSoft, fg: colors.amber },
   active: { bg: colors.primarySoft, fg: colors.primaryDark },
   successful: { bg: colors.blueSoft, fg: colors.blue },
+  in_progress: { bg: colors.indigoSoft, fg: colors.indigo },
   failed: { bg: colors.redSoft, fg: colors.red },
   canceled: { bg: '#e2e8f0', fg: '#475569' },
   suspended: { bg: '#ffedd5', fg: '#b45309' },

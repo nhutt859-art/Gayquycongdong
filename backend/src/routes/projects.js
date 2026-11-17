@@ -130,6 +130,83 @@ async function notifyOtherCollaborators(db, projectId, { type = 'collab', conten
   );
 }
 
+const COMPLETED_STATUSES = ['successful', 'in_progress'];
+
+function vnDate(value) {
+  const raw = String(value || '').slice(0, 10);
+  const [year, month, day] = raw.split('-');
+  return year && month && day ? `${day}/${month}/${year}` : raw;
+}
+
+/**
+ * Tạo yêu cầu giải ngân cho phần tiền chưa được yêu cầu/giải ngân.
+ * Trả về null nếu dự án đã được yêu cầu giải ngân toàn bộ.
+ */
+async function createPendingPayout(db, project) {
+  const paid = await db.query(
+    `select coalesce(sum(amount), 0)::numeric as total
+       from transactions
+      where project_id = $1 and type = 'payout' and status in ('pending', 'success')`,
+    [project.id],
+  );
+  const remaining = Number(project.current_amount) - Number(paid.rows[0].total);
+  if (remaining < 1) return null;
+
+  const { rows } = await db.query(
+    `insert into transactions (project_id, type, amount, method, gateway_ref, status)
+     values ($1, 'payout', $2, 'bank_transfer', $3, 'pending') returning *`,
+    [project.id, remaining, `PAYOUT-AUTO-${String(project.id).slice(0, 8).toUpperCase()}`],
+  );
+  return rows[0];
+}
+
+/** Thông báo cho chủ dự án, nhà tài trợ, người theo dõi, cộng tác viên và admin. */
+async function announceCompletion(db, project, { actorId = null, payout = null } = {}) {
+  const amountText = Number(project.current_amount).toLocaleString('vi-VN');
+  const payoutText = payout
+    ? ` Yêu cầu giải ngân ${Number(payout.amount).toLocaleString('vi-VN')}đ đã được tạo và chỉ được duyệt từ ngày ${vnDate(project.end_date)}.`
+    : '';
+  const link = `/du-an/${project.id}`;
+
+  await notifyAudience(db, project.id, {
+    type: 'project',
+    content: `Chiến dịch “${project.title}” đã hoàn thành với ${amountText}đ và ngừng nhận tài trợ.${payoutText}`,
+    link,
+  });
+  if (project.owner_id !== actorId) {
+    await notify(db, project.owner_id, {
+      type: 'project',
+      content: `Dự án “${project.title}” đã đạt mục tiêu và chuyển sang trạng thái hoàn thành.${payoutText}`,
+      link: `/quan-ly/${project.id}`,
+    });
+  }
+  await notifyAdmins(db, {
+    type: 'payout',
+    content: `Dự án “${project.title}” đã hoàn thành với ${amountText}đ.${payoutText}`,
+    link: '/admin/giai-ngan',
+  });
+}
+
+/**
+ * Tự chuyển dự án sang hoàn thành khi tiền đã gọi đạt mục tiêu, đồng thời
+ * tạo yêu cầu giải ngân chờ admin duyệt (chỉ duyệt được khi tới hạn).
+ */
+async function completeProjectIfFunded(db, projectId, { actorId = null } = {}) {
+  const { rows } = await db.query(
+    `update projects
+        set status = 'successful', completed_at = now()
+      where id = $1 and status = 'active' and current_amount >= goal_amount
+      returning *`,
+    [projectId],
+  );
+  if (!rows.length) return null;
+
+  const project = rows[0];
+  const payout = await createPendingPayout(db, project);
+  await announceCompletion(db, project, { actorId, payout });
+  return { project, payout };
+}
+
 // ============================================================
 // GET /api/projects — danh sách + lọc + phân trang
 // ============================================================
@@ -154,7 +231,11 @@ router.get(
       if (['draft', 'pending_review'].includes(status) && !isAdmin) {
         throw new ApiError(403, 'Bạn không có quyền xem dự án ở trạng thái này.');
       }
-      where.push(`p.status = ${add(status)}`);
+      if (status === 'successful') {
+        where.push(`p.status in ('successful', 'in_progress')`);
+      } else {
+        where.push(`p.status = ${add(status)}`);
+      }
       if (status === 'active') where.push('p.end_date >= current_date');
     } else if (!isAdmin) {
       where.push(`p.status not in ('draft', 'pending_review')`);
@@ -256,9 +337,9 @@ router.get(
         (select count(*) from projects
           where status = 'active' and end_date >= current_date)::int as active_projects,
         (select coalesce(sum(current_amount), 0) from projects
-          where status in ('active', 'successful', 'suspended'))::numeric as total_raised,
+          where status in ('active', 'successful', 'in_progress', 'suspended'))::numeric as total_raised,
         (select count(distinct backer_id) from pledges where status = 'paid')::int as total_backers,
-        (select count(*) from projects where status = 'successful')::int as successful_projects,
+        (select count(*) from projects where status in ('successful', 'in_progress'))::int as successful_projects,
         (select count(*) from projects)::int as total_projects
     `);
     res.json(result.rows[0]);
@@ -336,8 +417,10 @@ router.get(
         [req.params.id],
       ),
       query(
-        `select t.id, t.amount, t.status, t.method, t.gateway_ref, t.created_at
+        `select t.id, t.amount, t.status, t.method, t.gateway_ref, t.created_at,
+                t.processed_by, t.processed_at, u.full_name as processed_by_name
            from transactions t
+           left join users u on u.id = t.processed_by
           where t.project_id = $1 and t.type = 'payout'
           order by t.created_at desc`,
         [req.params.id],
@@ -366,9 +449,42 @@ router.get(
       myPledgeTotal = Number(mp.rows[0].total);
     }
 
-    const payoutTotal = payouts.rows
-      .filter((t) => ['pending', 'success'].includes(t.status))
+    const payoutRows = payouts.rows.map((p) => ({ ...p, amount: Number(p.amount) }));
+    const disbursedRows = payoutRows
+      .filter((t) => t.status === 'success')
+      .sort((a, b) => new Date(b.processed_at || b.created_at) - new Date(a.processed_at || a.created_at));
+    const latestDisbursement = disbursedRows[0] || null;
+    const disbursedTotal = disbursedRows.reduce((sum, t) => sum + Number(t.amount), 0);
+    const pendingPayoutTotal = payoutRows
+      .filter((t) => t.status === 'pending')
       .reduce((sum, t) => sum + Number(t.amount), 0);
+    const payoutTotal = disbursedTotal + pendingPayoutTotal;
+    const availableForPayout = Math.max(0, Number(project.current_amount) - payoutTotal);
+    const isCompleted = COMPLETED_STATUSES.includes(project.status);
+    const dueReached = project.end_date <= today();
+
+    let payoutBlockReason = null;
+    if (!isCompleted) {
+      payoutBlockReason = 'Dự án chưa hoàn thành nên chưa thể giải ngân.';
+    } else if (!dueReached) {
+      payoutBlockReason = `Chờ tới ngày kết thúc ${vnDate(project.end_date)} mới được giải ngân.`;
+    } else if (pendingPayoutTotal <= 0 && availableForPayout <= 0) {
+      payoutBlockReason = 'Dự án đã giải ngân toàn bộ số tiền đã huy động.';
+    }
+
+    const disbursement = {
+      status: latestDisbursement ? 'disbursed' : 'not_disbursed',
+      is_disbursed: Boolean(latestDisbursement),
+      amount: disbursedTotal,
+      latest_amount: latestDisbursement ? Number(latestDisbursement.amount) : 0,
+      disbursed_at: latestDisbursement?.processed_at || latestDisbursement?.created_at || null,
+      disbursed_by_name: latestDisbursement?.processed_by_name || null,
+      pending_amount: pendingPayoutTotal,
+      due_date: project.end_date,
+      due_reached: dueReached,
+      can_disburse: isCompleted && dueReached && pendingPayoutTotal > 0,
+      block_reason: payoutBlockReason,
+    };
 
     const myRole = access.isOwner ? 'owner' : access.isCollaborator ? 'collaborator' : null;
     const canPledge =
@@ -396,10 +512,11 @@ router.get(
       my_pledge_total: myPledgeTotal,
       prediction: prediction.rows[0] || null,
       fraud_flags: fraudFlags.rows.map((f) => ({ ...f, risk_score: Number(f.risk_score) })),
-      payouts: access.canManage || access.isAdmin ? payouts.rows.map((p) => ({ ...p, amount: Number(p.amount) })) : [],
-      available_for_payout: access.canManage || access.isAdmin
-        ? Math.max(0, Number(project.current_amount) - payoutTotal)
-        : 0,
+      payouts: access.canManage || access.isAdmin ? payoutRows : [],
+      disbursement,
+      available_for_payout: access.canManage || access.isAdmin ? availableForPayout : 0,
+      can_request_payout:
+        access.isOwner && isCompleted && dueReached && availableForPayout > 0,
     });
   }),
 );
@@ -625,6 +742,10 @@ router.patch(
       params,
     );
 
+    // Nếu chủ dự án hạ mục tiêu xuống dưới số tiền đã gọi được, hoàn thành ngay.
+    const completion = await completeProjectIfFunded(pool, rows[0].id, { actorId: req.user.id });
+    const updatedProject = completion?.project || rows[0];
+
     if (prediction) {
       await savePrediction(pool, rows[0].id, prediction);
       if (fraud.score >= 60) {
@@ -649,7 +770,7 @@ router.patch(
     }
 
     res.json({
-      project: mapProject({ ...rows[0], category_name: categoryName }),
+      project: mapProject({ ...updatedProject, category_name: categoryName }),
       prediction,
       fraud,
     });
@@ -666,26 +787,68 @@ router.post(
     const access = await assertOwner(pool, req.params.id, req.user);
     const { outcome } = parse(closeSchema, req.body);
 
+    const currentResult = await query('select * from projects where id = $1', [req.params.id]);
+    const current = currentResult.rows[0];
+    if (!['draft', 'pending_review', 'active'].includes(current.status)) {
+      throw new ApiError(400, 'Chiến dịch đã kết thúc nên không thể đổi trạng thái.');
+    }
+    if (outcome === 'successful' && Number(current.current_amount) < Number(current.goal_amount)) {
+      throw new ApiError(
+        400,
+        'Chỉ có thể đánh dấu thành công khi dự án đã đạt mục tiêu. Chọn “Thất bại” hoặc “Đã dừng” nếu muốn kết thúc sớm.',
+      );
+    }
+
     const { rows } = await query(
-      'update projects set status = $1 where id = $2 returning *',
+      `update projects
+          set status = $1::project_status,
+              completed_at = case when $1 = 'successful' then now() else null end
+        where id = $2
+        returning *`,
       [outcome, req.params.id],
     );
     const project = rows[0];
 
     const labels = { successful: 'thành công', failed: 'thất bại', canceled: 'đã dừng' };
-    await notifyAudience(pool, project.id, {
-      type: 'project',
-      content: `Chiến dịch “${project.title}” đã kết thúc với trạng thái ${labels[outcome]}.`,
-      link: `/du-an/${project.id}`,
-      excludeUserId: req.user.id,
-    });
+    const link = `/du-an/${project.id}`;
 
-    if (access.isAdmin) {
-      await notify(pool, project.owner_id, {
+    if (outcome === 'successful') {
+      const payout = await createPendingPayout(pool, project);
+      const payoutText = payout
+        ? ` Yêu cầu giải ngân ${Number(payout.amount).toLocaleString('vi-VN')}đ đã được tạo và chỉ được duyệt từ ngày ${vnDate(project.end_date)}.`
+        : '';
+      await notifyAudience(pool, project.id, {
         type: 'project',
-        content: `Admin đã cập nhật trạng thái dự án “${project.title}” thành ${labels[outcome]}.`,
-        link: `/quan-ly/${project.id}`,
+        content: `Chiến dịch “${project.title}” đã hoàn thành với ${Number(project.current_amount).toLocaleString('vi-VN')}đ và ngừng nhận tài trợ.${payoutText}`,
+        link,
+        excludeUserId: req.user.id,
       });
+      await notifyAdmins(pool, {
+        type: 'payout',
+        content: `Dự án “${project.title}” đã được đánh dấu hoàn thành.${payoutText}`,
+        link: '/admin/giai-ngan',
+      });
+      if (access.isAdmin) {
+        await notify(pool, project.owner_id, {
+          type: 'project',
+          content: `Quản trị viên đã đánh dấu dự án “${project.title}” hoàn thành.${payoutText}`,
+          link: `/quan-ly/${project.id}`,
+        });
+      }
+    } else {
+      await notifyAudience(pool, project.id, {
+        type: 'project',
+        content: `Chiến dịch “${project.title}” đã kết thúc với trạng thái ${labels[outcome]}.`,
+        link,
+        excludeUserId: req.user.id,
+      });
+      if (access.isAdmin) {
+        await notify(pool, project.owner_id, {
+          type: 'project',
+          content: `Admin đã cập nhật trạng thái dự án “${project.title}” thành ${labels[outcome]}.`,
+          link: `/quan-ly/${project.id}`,
+        });
+      }
     }
 
     res.json({ project: mapProject(project), message: `Đã cập nhật trạng thái: ${labels[outcome]}.` });
@@ -937,7 +1100,14 @@ router.post(
       });
 
       const updated = await client.query('select * from projects where id = $1', [req.params.id]);
-      return { pledge, project: updated.rows[0], risk, fraud };
+      const completion = await completeProjectIfFunded(client, req.params.id, { actorId: req.user.id });
+      return {
+        pledge,
+        project: completion?.project || updated.rows[0],
+        risk,
+        fraud,
+        completed: Boolean(completion),
+      };
     });
 
     res.status(201).json({
@@ -945,7 +1115,9 @@ router.post(
       project: mapProject(result.project),
       risk: result.risk,
       fraud: result.fraud,
-      message: `Tài trợ ${Number(result.pledge.amount).toLocaleString('vi-VN')}đ thành công.`,
+      message: result.completed
+        ? `Tài trợ ${Number(result.pledge.amount).toLocaleString('vi-VN')}đ thành công. Dự án đã đạt mục tiêu và ngừng nhận tài trợ.`
+        : `Tài trợ ${Number(result.pledge.amount).toLocaleString('vi-VN')}đ thành công.`,
     });
   }),
 );
@@ -1218,8 +1390,14 @@ router.post(
     const result = await withTransaction(async (client) => {
       const projectResult = await client.query('select * from projects where id = $1 for update', [req.params.id]);
       const project = projectResult.rows[0];
-      if (!['active', 'successful'].includes(project.status)) {
-        throw new ApiError(400, 'Chỉ dự án đang gây quỹ hoặc thành công mới được yêu cầu giải ngân.');
+      if (!COMPLETED_STATUSES.includes(project.status)) {
+        throw new ApiError(400, 'Dự án chưa hoàn thành nên chưa thể yêu cầu giải ngân.');
+      }
+      if (project.end_date > today()) {
+        throw new ApiError(
+          400,
+          `Chỉ được giải ngân khi chiến dịch tới hạn vào ngày ${vnDate(project.end_date)}.`,
+        );
       }
 
       const paid = await client.query(

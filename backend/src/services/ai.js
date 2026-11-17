@@ -149,7 +149,7 @@ export async function fraudScoreForProject({
       `select percentile_cont(0.5) within group (order by goal_amount) as median_goal,
               count(*)::int as sample
          from projects
-        where category_id = $1 and status in ('successful', 'failed')`,
+        where category_id = $1 and status in ('successful', 'in_progress', 'failed')`,
       [categoryId],
     );
     const medianGoal = Number(cat.rows[0]?.median_goal || 0);
@@ -168,8 +168,8 @@ export async function fraudScoreForProject({
   if (ownerId) {
     const ownerHistory = await query(
       `select
-         count(*) filter (where status in ('successful', 'failed'))::int as decided,
-         count(*) filter (where status = 'successful')::int as successes,
+         count(*) filter (where status in ('successful', 'in_progress', 'failed'))::int as decided,
+         count(*) filter (where status in ('successful', 'in_progress'))::int as successes,
          count(*) filter (where status in ('failed', 'canceled'))::int as bad,
          count(*) filter (where created_at > now() - interval '30 days')::int as recent
        from projects where owner_id = $1`,
