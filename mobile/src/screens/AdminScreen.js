@@ -562,7 +562,7 @@ export default function AdminScreen({ navigation, route }) {
                       <Text style={{ fontWeight: '800', fontSize: 13, marginRight: 6 }}>{p.project_title}</Text>
                       <Badge
                         label={statusVi[p.project_status] || p.project_status}
-                        tone={p.project_status === 'in_progress' ? 'indigo' : p.project_status === 'successful' ? 'blue' : 'slate'}
+                        tone={p.project_status === 'in_progress' ? 'indigo' : p.project_status === 'successful' ? 'blue' : p.project_status === 'awaiting_disbursement' ? 'amber' : p.project_status === 'disbursed' ? 'emerald' : 'slate'}
                       />
                     </View>
                     <Text style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>

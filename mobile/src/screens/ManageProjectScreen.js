@@ -65,6 +65,7 @@ export default function ManageProjectScreen({ navigation, route }) {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState('1000000');
   const [payoutBusy, setPayoutBusy] = useState(false);
+  const [startBusy, setStartBusy] = useState(false);
   const [closeOutcome, setCloseOutcome] = useState('successful');
   const [closeBusy, setCloseBusy] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState(false);
@@ -305,11 +306,30 @@ export default function ManageProjectScreen({ navigation, route }) {
     }
   };
 
+  const startImplementation = () => {
+    confirmAction(
+      'Bắt đầu triển khai?',
+      'Dự án sẽ chuyển sang trạng thái “Đang triển khai”. Nhà tài trợ, người theo dõi, cộng tác viên và quản trị viên sẽ được thông báo.',
+      async () => {
+        setStartBusy(true);
+        try {
+          const data = await api.post(`/projects/${id}/start-implementation`);
+          toast(data.message || 'Dự án đã chuyển sang trạng thái “Đang triển khai”.', 'success');
+          await load();
+        } catch (err) {
+          toast(err.message, 'error');
+        } finally {
+          setStartBusy(false);
+        }
+      },
+    );
+  };
+
   const closeProject = () => {
     confirmAction(
       'Kết thúc chiến dịch?',
       closeOutcome === 'successful'
-        ? 'Dự án sẽ được đánh dấu thành công và có thể giải ngân.'
+        ? 'Dự án sẽ chuyển sang trạng thái “Chờ giải ngân” và có thể yêu cầu giải ngân.'
         : closeOutcome === 'failed'
           ? 'Dự án sẽ được đánh dấu thất bại và hoàn tiền cho nhà tài trợ.'
           : 'Dự án sẽ bị dừng và hoàn tiền cho nhà tài trợ.',
@@ -759,6 +779,17 @@ export default function ManageProjectScreen({ navigation, route }) {
 
       {tab === 'finance' ? (
         <View>
+          {isOwner && project.status === 'disbursed' ? (
+            <Card style={{ padding: 14, marginBottom: 10, borderColor: colors.primarySoft, backgroundColor: colors.primaryPale }}>
+              <SectionHeader title="Dự án đã được giải ngân" subtitle="Bắt đầu triển khai khi bạn sẵn sàng." />
+              <Button
+                title="Bắt đầu triển khai"
+                icon="rocket-outline"
+                loading={startBusy}
+                onPress={startImplementation}
+              />
+            </Card>
+          ) : null}
           <Card style={{ padding: 14 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <SectionHeader title="Giải ngân" subtitle={`Có thể rút: ${vnd(project.available_for_payout || 0)}`} />
@@ -803,7 +834,7 @@ export default function ManageProjectScreen({ navigation, route }) {
               </View>
             )}
             <Text style={{ fontSize: 10, color: colors.soft, marginTop: 8 }}>
-              Chỉ giải ngân khi dự án hoàn thành và tới ngày kết thúc. Sau khi nhận tiền, dự án chuyển sang “Đang triển khai”.
+              Chỉ giải ngân khi dự án hoàn thành và tới ngày kết thúc. Sau khi admin duyệt, dự án chuyển sang “Đã giải ngân”; bấm “Bắt đầu triển khai” khi sẵn sàng.
             </Text>
           </Card>
 
@@ -864,7 +895,7 @@ export default function ManageProjectScreen({ navigation, route }) {
               <SectionHeader title="Kết thúc chiến dịch" subtitle="Chọn kết quả trước khi xác nhận" />
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
                 {[
-                  ['successful', 'Thành công'],
+                  ['successful', 'Chờ giải ngân'],
                   ['failed', 'Thất bại'],
                   ['canceled', 'Dừng'],
                 ].map(([key, label]) => (

@@ -59,7 +59,7 @@ VALUES
  'Máy lọc nước cho trạm y tế xã',
  'Lắp 10 máy lọc nước và trang bị tủ thuốc thiết yếu cho các trạm y tế xã vùng lũ.',
  'https://picsum.photos/seed/nuoc-sach/900/500', '💧',
- 150000000, CURRENT_DATE - 150, CURRENT_DATE - 20, 'successful', 88, 8, now() - interval '150 days'),
+ 150000000, CURRENT_DATE - 150, CURRENT_DATE - 20, 'awaiting_disbursement', 88, 8, now() - interval '150 days'),
 
 ('20000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000006', '10000000-0000-4000-8000-000000000005',
  'Lễ hội làng nghề truyền thống',
@@ -95,7 +95,7 @@ VALUES
  'Bảo tồn nghề dệt thổ cẩm',
  'Hỗ trợ 30 hộ dệt thổ cẩm khôi phục khung dệt, mở lớp truyền nghề và tìm đầu ra ổn định.',
  'https://picsum.photos/seed/det-them/900/500', '🧵',
- 120000000, CURRENT_DATE - 120, CURRENT_DATE - 15, 'successful', 89, 4, now() - interval '120 days'),
+ 120000000, CURRENT_DATE - 120, CURRENT_DATE - 15, 'awaiting_disbursement', 89, 4, now() - interval '120 days'),
 
 ('20000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000006', '10000000-0000-4000-8000-000000000004',
  'Nông nghiệp sạch cho phụ nữ nông thôn',
@@ -106,7 +106,7 @@ VALUES
 -- Ngày hoàn thành cho các chiến dịch đã kết thúc thành công.
 UPDATE projects
    SET completed_at = end_date::timestamptz
- WHERE status = 'successful';
+ WHERE status IN ('successful', 'awaiting_disbursement', 'disbursed');
 
 -- ============================================================
 -- PROJECT COLLABORATORS
@@ -210,9 +210,9 @@ INSERT INTO transactions (id, pledge_id, project_id, type, amount, method, gatew
 ('50000000-0000-4000-8000-000000000102', NULL, '20000000-0000-4000-8000-000000000009', 'payout', 100000000, 'bank_transfer', 'PAYOUT-P9-01', 'pending', now() - interval '2 days'),
 ('50000000-0000-4000-8000-000000000103', NULL, '20000000-0000-4000-8000-000000000001', 'payout', 50000000, 'bank_transfer', 'PAYOUT-P1-01', 'pending', now() - interval '1 day');
 
--- Dự án đã giải ngân xong chuyển sang trạng thái đang triển khai.
+-- Dự án đã giải ngân xong chuyển sang trạng thái đã giải ngân.
 UPDATE projects
-   SET status = 'in_progress'
+   SET status = 'disbursed'
  WHERE id = '20000000-0000-4000-8000-000000000003';
 
 -- Người duyệt + thời điểm giải ngân của giao dịch mẫu.

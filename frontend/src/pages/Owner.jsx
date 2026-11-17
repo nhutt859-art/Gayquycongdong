@@ -207,6 +207,7 @@ export function ManageProject() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState('1000000');
   const [payoutBusy, setPayoutBusy] = useState(false);
+  const [startBusy, setStartBusy] = useState(false);
   const [closeOutcome, setCloseOutcome] = useState('successful');
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeBusy, setCloseBusy] = useState(false);
@@ -493,6 +494,26 @@ export function ManageProject() {
     }
   };
 
+  const startImplementation = async () => {
+    if (
+      !window.confirm(
+        'Bắt đầu triển khai dự án? Nhà tài trợ, người theo dõi, cộng tác viên và quản trị viên sẽ được thông báo.',
+      )
+    ) {
+      return;
+    }
+    setStartBusy(true);
+    try {
+      const data = await api.post(`/projects/${id}/start-implementation`);
+      toast(data.message || 'Dự án đã chuyển sang trạng thái “Đang triển khai”.', 'success');
+      await load();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setStartBusy(false);
+    }
+  };
+
   const closeProject = async () => {
     setCloseBusy(true);
     try {
@@ -640,7 +661,7 @@ export function ManageProject() {
                 <h2 className="font-bold text-red-700">Đóng chiến dịch</h2>
                 <p className="mt-1 text-xs text-slate-500">Chỉ chủ dự án được đóng. Dự án thất bại đã đóng có thể được admin hoàn tiền.</p>
                 <select className="input mt-2" value={closeOutcome} onChange={(e) => setCloseOutcome(e.target.value)}>
-                  <option value="successful">Thành công</option>
+                  <option value="successful">Đạt mục tiêu — Chờ giải ngân</option>
                   <option value="failed">Thất bại</option>
                   <option value="canceled">Đã dừng</option>
                 </select>
@@ -877,6 +898,20 @@ export function ManageProject() {
             </div>
           )}
 
+          {isOwner && project.status === 'disbursed' && (
+            <div className="card flex flex-wrap items-center justify-between gap-3 border-teal-200 bg-teal-50 p-4">
+              <div>
+                <b>Dự án đã được giải ngân</b>
+                <p className="text-xs text-slate-600">
+                  Khi sẵn sàng, bấm “Bắt đầu triển khai” để chuyển dự án sang trạng thái “Đang triển khai” và thông báo cho các bên liên quan.
+                </p>
+              </div>
+              <button className="btn-primary text-sm disabled:opacity-60" disabled={startBusy} onClick={startImplementation}>
+                {startBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang chuyển…</> : 'Bắt đầu triển khai'}
+              </button>
+            </div>
+          )}
+
           <div className="grid gap-4 md:grid-cols-3">
             {isOwner && (
               <div className="card space-y-3 p-5">
@@ -897,7 +932,7 @@ export function ManageProject() {
                   </p>
                 )}
                 <p className="text-[11px] text-slate-400">
-                  Chỉ dự án đã hoàn thành và tới ngày kết thúc mới được giải ngân. Sau khi nhận tiền, dự án chuyển sang trạng thái “Đang triển khai”.
+                  Chỉ dự án đã hoàn thành và tới ngày kết thúc mới được giải ngân. Sau khi admin duyệt, dự án chuyển sang “Đã giải ngân”; chủ dự án bấm “Bắt đầu triển khai” khi sẵn sàng.
                 </p>
               </div>
             )}
@@ -982,8 +1017,8 @@ export function ManageProject() {
       >
         <p className="text-sm text-slate-600">
           Chiến dịch sẽ chuyển sang trạng thái{' '}
-          <b>{closeOutcome === 'successful' ? 'Thành công' : closeOutcome === 'failed' ? 'Thất bại' : 'Đã dừng'}</b>.
-          Nhà tài trợ và người theo dõi sẽ nhận thông báo.
+          <b>{closeOutcome === 'successful' ? 'Chờ giải ngân' : closeOutcome === 'failed' ? 'Thất bại' : 'Đã dừng'}</b>.
+          Nhà tài trợ, người theo dõi, cộng tác viên và quản trị viên sẽ nhận thông báo.
         </p>
       </Modal>
     </div>

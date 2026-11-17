@@ -8,6 +8,7 @@ import { mapProject, mapReward } from '../lib/mappers.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.js';
 import { assertCanManage, assertOwner, getProjectAccess } from '../services/permissions.js';
 import { notify, notifyAdmins } from '../services/notifications.js';
+import { SUCCESS_STATUSES, SUCCESS_STATUS_SQL } from '../lib/project-status.js';
 import {
   fraudScoreForPledge,
   fraudScoreForProject,
@@ -130,7 +131,49 @@ async function notifyOtherCollaborators(db, projectId, { type = 'collab', conten
   );
 }
 
-const COMPLETED_STATUSES = ['successful', 'in_progress'];
+const STATUS_LABELS = {
+  awaiting_disbursement: 'Chờ giải ngân',
+  disbursed: 'Đã giải ngân',
+  in_progress: 'Đang triển khai',
+  successful: 'Thành công',
+  failed: 'Thất bại',
+  canceled: 'Đã dừng',
+};
+
+/**
+ * Thông báo cho toàn bộ các bên liên quan khi dự án đổi trạng thái:
+ * chủ dự án, nhà tài trợ, người theo dõi, cộng tác viên và quản trị viên.
+ */
+async function notifyStakeholders(
+  db,
+  project,
+  {
+    type = 'project',
+    content,
+    ownerContent = content,
+    adminContent = content,
+    audienceLink = `/du-an/${project.id}`,
+    ownerLink = `/quan-ly/${project.id}`,
+    adminLink = null,
+    actorId = null,
+  },
+) {
+  await notifyAudience(db, project.id, {
+    type,
+    content,
+    link: audienceLink,
+    excludeUserId: actorId,
+  });
+  if (project.owner_id !== actorId) {
+    await notify(db, project.owner_id, { type, content: ownerContent, link: ownerLink });
+  }
+  await notifyAdmins(db, {
+    type,
+    content: adminContent,
+    link: adminLink,
+    excludeUserId: actorId,
+  });
+}
 
 function vnDate(value) {
   const raw = String(value || '').slice(0, 10);
@@ -160,41 +203,31 @@ async function createPendingPayout(db, project) {
   return rows[0];
 }
 
-/** Thông báo cho chủ dự án, nhà tài trợ, người theo dõi, cộng tác viên và admin. */
+/** Thông báo khi dự án đạt mục tiêu và chuyển sang “Chờ giải ngân”. */
 async function announceCompletion(db, project, { actorId = null, payout = null } = {}) {
   const amountText = Number(project.current_amount).toLocaleString('vi-VN');
   const payoutText = payout
     ? ` Yêu cầu giải ngân ${Number(payout.amount).toLocaleString('vi-VN')}đ đã được tạo và chỉ được duyệt từ ngày ${vnDate(project.end_date)}.`
     : '';
-  const link = `/du-an/${project.id}`;
 
-  await notifyAudience(db, project.id, {
-    type: 'project',
-    content: `Chiến dịch “${project.title}” đã hoàn thành với ${amountText}đ và ngừng nhận tài trợ.${payoutText}`,
-    link,
-  });
-  if (project.owner_id !== actorId) {
-    await notify(db, project.owner_id, {
-      type: 'project',
-      content: `Dự án “${project.title}” đã đạt mục tiêu và chuyển sang trạng thái hoàn thành.${payoutText}`,
-      link: `/quan-ly/${project.id}`,
-    });
-  }
-  await notifyAdmins(db, {
+  await notifyStakeholders(db, project, {
     type: 'payout',
-    content: `Dự án “${project.title}” đã hoàn thành với ${amountText}đ.${payoutText}`,
-    link: '/admin/giai-ngan',
+    content: `Chiến dịch “${project.title}” đã đạt mục tiêu với ${amountText}đ, ngừng nhận tài trợ và chuyển sang trạng thái “Chờ giải ngân”.${payoutText}`,
+    ownerContent: `Dự án “${project.title}” đã đạt mục tiêu với ${amountText}đ và chuyển sang trạng thái “Chờ giải ngân”.${payoutText}`,
+    adminContent: `Dự án “${project.title}” đã đạt mục tiêu với ${amountText}đ và đang chờ giải ngân.${payoutText}`,
+    adminLink: '/admin/giai-ngan',
+    actorId,
   });
 }
 
 /**
- * Tự chuyển dự án sang hoàn thành khi tiền đã gọi đạt mục tiêu, đồng thời
+ * Tự chuyển dự án sang “Chờ giải ngân” khi tiền đã gọi đạt mục tiêu, đồng thời
  * tạo yêu cầu giải ngân chờ admin duyệt (chỉ duyệt được khi tới hạn).
  */
 async function completeProjectIfFunded(db, projectId, { actorId = null } = {}) {
   const { rows } = await db.query(
     `update projects
-        set status = 'successful', completed_at = now()
+        set status = 'awaiting_disbursement', completed_at = now()
       where id = $1 and status = 'active' and current_amount >= goal_amount
       returning *`,
     [projectId],
@@ -232,7 +265,7 @@ router.get(
         throw new ApiError(403, 'Bạn không có quyền xem dự án ở trạng thái này.');
       }
       if (status === 'successful') {
-        where.push(`p.status in ('successful', 'in_progress')`);
+        where.push(`p.status in (${SUCCESS_STATUS_SQL})`);
       } else {
         where.push(`p.status = ${add(status)}`);
       }
@@ -337,9 +370,9 @@ router.get(
         (select count(*) from projects
           where status = 'active' and end_date >= current_date)::int as active_projects,
         (select coalesce(sum(current_amount), 0) from projects
-          where status in ('active', 'successful', 'in_progress', 'suspended'))::numeric as total_raised,
+          where status in ('active', ${SUCCESS_STATUS_SQL}, 'suspended'))::numeric as total_raised,
         (select count(distinct backer_id) from pledges where status = 'paid')::int as total_backers,
-        (select count(*) from projects where status in ('successful', 'in_progress'))::int as successful_projects,
+        (select count(*) from projects where status in (${SUCCESS_STATUS_SQL}))::int as successful_projects,
         (select count(*) from projects)::int as total_projects
     `);
     res.json(result.rows[0]);
@@ -460,7 +493,7 @@ router.get(
       .reduce((sum, t) => sum + Number(t.amount), 0);
     const payoutTotal = disbursedTotal + pendingPayoutTotal;
     const availableForPayout = Math.max(0, Number(project.current_amount) - payoutTotal);
-    const isCompleted = COMPLETED_STATUSES.includes(project.status);
+    const isCompleted = SUCCESS_STATUSES.includes(project.status);
     const dueReached = project.end_date <= today();
 
     let payoutBlockReason = null;
@@ -468,12 +501,14 @@ router.get(
       payoutBlockReason = 'Dự án chưa hoàn thành nên chưa thể giải ngân.';
     } else if (!dueReached) {
       payoutBlockReason = `Chờ tới ngày kết thúc ${vnDate(project.end_date)} mới được giải ngân.`;
+    } else if (pendingPayoutTotal <= 0 && availableForPayout > 0) {
+      payoutBlockReason = 'Dự án chưa có yêu cầu giải ngân nào đang chờ duyệt.';
     } else if (pendingPayoutTotal <= 0 && availableForPayout <= 0) {
       payoutBlockReason = 'Dự án đã giải ngân toàn bộ số tiền đã huy động.';
     }
 
     const disbursement = {
-      status: latestDisbursement ? 'disbursed' : 'not_disbursed',
+      status: latestDisbursement ? 'disbursed' : pendingPayoutTotal > 0 ? 'pending' : 'not_requested',
       is_disbursed: Boolean(latestDisbursement),
       amount: disbursedTotal,
       latest_amount: latestDisbursement ? Number(latestDisbursement.amount) : 0,
@@ -784,7 +819,7 @@ router.post(
   '/:id/close',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const access = await assertOwner(pool, req.params.id, req.user);
+    await assertOwner(pool, req.params.id, req.user);
     const { outcome } = parse(closeSchema, req.body);
 
     const currentResult = await query('select * from projects where id = $1', [req.params.id]);
@@ -799,59 +834,103 @@ router.post(
       );
     }
 
+    const nextStatus = outcome === 'successful' ? 'awaiting_disbursement' : outcome;
     const { rows } = await query(
       `update projects
           set status = $1::project_status,
-              completed_at = case when $1 = 'successful' then now() else null end
+              completed_at = case when $1 = 'awaiting_disbursement' then now() else null end,
+              updated_at = now()
         where id = $2
         returning *`,
-      [outcome, req.params.id],
+      [nextStatus, req.params.id],
     );
     const project = rows[0];
 
-    const labels = { successful: 'thành công', failed: 'thất bại', canceled: 'đã dừng' };
-    const link = `/du-an/${project.id}`;
+    const labels = {
+      successful: 'Chờ giải ngân',
+      failed: 'Thất bại',
+      canceled: 'Đã dừng',
+    };
 
     if (outcome === 'successful') {
       const payout = await createPendingPayout(pool, project);
+      const amountText = Number(project.current_amount).toLocaleString('vi-VN');
       const payoutText = payout
         ? ` Yêu cầu giải ngân ${Number(payout.amount).toLocaleString('vi-VN')}đ đã được tạo và chỉ được duyệt từ ngày ${vnDate(project.end_date)}.`
         : '';
-      await notifyAudience(pool, project.id, {
-        type: 'project',
-        content: `Chiến dịch “${project.title}” đã hoàn thành với ${Number(project.current_amount).toLocaleString('vi-VN')}đ và ngừng nhận tài trợ.${payoutText}`,
-        link,
-        excludeUserId: req.user.id,
-      });
-      await notifyAdmins(pool, {
+      await notifyStakeholders(pool, project, {
         type: 'payout',
-        content: `Dự án “${project.title}” đã được đánh dấu hoàn thành.${payoutText}`,
-        link: '/admin/giai-ngan',
+        content: `Chiến dịch “${project.title}” đã đạt mục tiêu với ${amountText}đ, ngừng nhận tài trợ và chuyển sang trạng thái “Chờ giải ngân”.${payoutText}`,
+        ownerContent: `Dự án “${project.title}” đã được đánh dấu đạt mục tiêu và chuyển sang trạng thái “Chờ giải ngân”.${payoutText}`,
+        adminContent: `Dự án “${project.title}” đã được đánh dấu đạt mục tiêu và đang chờ giải ngân.${payoutText}`,
+        adminLink: '/admin/giai-ngan',
+        actorId: req.user.id,
       });
-      if (access.isAdmin) {
-        await notify(pool, project.owner_id, {
-          type: 'project',
-          content: `Quản trị viên đã đánh dấu dự án “${project.title}” hoàn thành.${payoutText}`,
-          link: `/quan-ly/${project.id}`,
-        });
-      }
     } else {
-      await notifyAudience(pool, project.id, {
+      await notifyStakeholders(pool, project, {
         type: 'project',
         content: `Chiến dịch “${project.title}” đã kết thúc với trạng thái ${labels[outcome]}.`,
-        link,
-        excludeUserId: req.user.id,
+        ownerContent: `Dự án “${project.title}” đã được cập nhật sang trạng thái ${labels[outcome]}.`,
+        adminContent: `Dự án “${project.title}” đã kết thúc với trạng thái ${labels[outcome]}.`,
+        adminLink: '/admin/du-an',
+        actorId: req.user.id,
       });
-      if (access.isAdmin) {
-        await notify(pool, project.owner_id, {
-          type: 'project',
-          content: `Admin đã cập nhật trạng thái dự án “${project.title}” thành ${labels[outcome]}.`,
-          link: `/quan-ly/${project.id}`,
-        });
-      }
     }
 
-    res.json({ project: mapProject(project), message: `Đã cập nhật trạng thái: ${labels[outcome]}.` });
+    res.json({
+      project: mapProject(project),
+      message: `Đã cập nhật trạng thái: ${labels[outcome]}.`,
+    });
+  }),
+);
+
+// ============================================================
+// POST /api/projects/:id/start-implementation
+// Chuyển “Đã giải ngân” → “Đang triển khai” và thông báo các bên liên quan.
+// ============================================================
+router.post(
+  '/:id/start-implementation',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await assertOwner(pool, req.params.id, req.user);
+
+    const project = await withTransaction(async (client) => {
+      const current = await client.query('select * from projects where id = $1 for update', [req.params.id]);
+      if (!current.rowCount) throw new ApiError(404, 'Không tìm thấy dự án.');
+      const row = current.rows[0];
+
+      if (row.status === 'in_progress') {
+        throw new ApiError(400, 'Dự án đã ở trạng thái “Đang triển khai”.');
+      }
+      if (row.status !== 'disbursed') {
+        throw new ApiError(400, 'Chỉ dự án đã giải ngân mới có thể bắt đầu triển khai.');
+      }
+
+      const updated = await client.query(
+        `update projects
+            set status = 'in_progress', updated_at = now()
+          where id = $1
+          returning *`,
+        [req.params.id],
+      );
+
+      const next = updated.rows[0];
+      await notifyStakeholders(client, next, {
+        type: 'project',
+        content: `Dự án “${next.title}” đã chuyển sang trạng thái “Đang triển khai”. Chủ dự án sẽ cập nhật tiến độ và kết quả thực hiện.`,
+        ownerContent: `Dự án “${next.title}” đã chuyển sang trạng thái “Đang triển khai”.`,
+        adminContent: `Dự án “${next.title}” đã chuyển sang trạng thái “Đang triển khai”.`,
+        adminLink: '/admin/du-an',
+        actorId: req.user.id,
+      });
+
+      return next;
+    });
+
+    res.json({
+      project: mapProject(project),
+      message: 'Dự án đã chuyển sang trạng thái “Đang triển khai”.',
+    });
   }),
 );
 
@@ -1390,7 +1469,7 @@ router.post(
     const result = await withTransaction(async (client) => {
       const projectResult = await client.query('select * from projects where id = $1 for update', [req.params.id]);
       const project = projectResult.rows[0];
-      if (!COMPLETED_STATUSES.includes(project.status)) {
+      if (!SUCCESS_STATUSES.includes(project.status)) {
         throw new ApiError(400, 'Dự án chưa hoàn thành nên chưa thể yêu cầu giải ngân.');
       }
       if (project.end_date > today()) {
@@ -1416,10 +1495,13 @@ router.post(
         [req.params.id, body.amount, `PAYOUT-REQ-${Date.now()}`],
       );
 
-      await notifyAdmins(client, {
+      const amountText = Number(body.amount).toLocaleString('vi-VN');
+      await notifyStakeholders(client, project, {
         type: 'payout',
-        content: `Yêu cầu giải ngân ${Number(body.amount).toLocaleString('vi-VN')}đ cho dự án “${project.title}”.`,
-        link: '/admin/giai-ngan',
+        content: `Dự án “${project.title}” vừa có yêu cầu giải ngân ${amountText}đ đang ở trạng thái “Chờ giải ngân”.`,
+        adminContent: `Yêu cầu giải ngân ${amountText}đ cho dự án “${project.title}” đang chờ duyệt.`,
+        adminLink: '/admin/giai-ngan',
+        actorId: req.user.id,
       });
 
       return inserted.rows[0];
@@ -1427,7 +1509,7 @@ router.post(
 
     res.status(201).json({
       transaction: { ...result, amount: Number(result.amount) },
-      message: 'Đã gửi yêu cầu giải ngân, chờ admin duyệt.',
+      message: 'Đã gửi yêu cầu giải ngân. Dự án đang ở trạng thái “Chờ giải ngân”.',
     });
   }),
 );

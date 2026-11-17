@@ -237,6 +237,7 @@ Thứ tự ưu tiên khi không đặt `MAIL_PROVIDER`: `BREVO_API_KEY` → `RES
 | `npm run db:migrate-ai` | Thêm cột/bảng AI (predictions, recommendations, fraud evidence, model versions) vào DB cũ |
 | `npm run db:migrate-kyc-suspension` | Thêm hồ sơ KYC, trạng thái tạm ngưng dự án và cột liên quan vào DB cũ |
 | `npm run db:migrate-disbursement` | Thêm trạng thái “Đang triển khai”, ngày hoàn thành, người/ngày giải ngân; backfill dữ liệu cũ |
+| `npm run db:migrate-disbursement-statuses` | Thêm trạng thái “Chờ giải ngân” / “Đã giải ngân”; chuyển dữ liệu `successful` cũ sang trạng thái mới |
 | `npm run db:setup` | DROP + CREATE schema rồi seed cơ bản |
 | `npm run db:seed` | Chỉ nạp lại seed cơ bản (không DROP bảng) |
 | `npm run db:seed:realistic -- --dry-run` | Kiểm tra bộ dữ liệu 200 dự án trước khi ghi |

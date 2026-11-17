@@ -1,4 +1,5 @@
 import { query } from '../db.js';
+import { DECIDED_STATUS_SQL, SUCCESS_STATUS_SQL, SUCCESS_STATUSES, DECIDED_STATUSES, isSuccessStatus } from '../lib/project-status.js';
 
 /**
  * Mô hình dự đoán thành công dựa trên dữ liệu lịch sử của chính nền tảng.
@@ -17,9 +18,6 @@ import { query } from '../db.js';
 const MODEL_KEY = 'project_success';
 const MODEL_VERSION = 'success-model-v4.0';
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const SUCCESS_STATUSES = ['successful', 'in_progress'];
-const DECIDED_STATUSES = [...SUCCESS_STATUSES, 'failed'];
-const isSuccessStatus = (status) => SUCCESS_STATUSES.includes(status);
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const sigmoid = (z) => 1 / (1 + Math.exp(-clamp(z, -30, 30)));
@@ -615,8 +613,8 @@ export async function predictForNewProject({
   let ownerPriorSuccesses = 0;
   if (ownerId) {
     const { rows } = await query(
-      `select count(*) filter (where status in ('successful', 'in_progress', 'failed'))::int as total,
-              count(*) filter (where status in ('successful', 'in_progress'))::int as successes
+      `select count(*) filter (where status in (${DECIDED_STATUS_SQL}))::int as total,
+              count(*) filter (where status in (${SUCCESS_STATUS_SQL}))::int as successes
          from projects where owner_id = $1`,
       [ownerId],
     );

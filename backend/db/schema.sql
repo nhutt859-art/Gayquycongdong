@@ -42,7 +42,7 @@ DROP TYPE IF EXISTS report_status CASCADE;
 CREATE TYPE user_role            AS ENUM ('backer', 'owner', 'admin');
 CREATE TYPE kyc_status           AS ENUM ('none', 'pending', 'verified');
 CREATE TYPE user_status          AS ENUM ('active', 'locked');
-CREATE TYPE project_status       AS ENUM ('draft', 'pending_review', 'active', 'successful', 'in_progress', 'failed', 'canceled', 'suspended');
+CREATE TYPE project_status       AS ENUM ('draft', 'pending_review', 'active', 'successful', 'awaiting_disbursement', 'disbursed', 'in_progress', 'failed', 'canceled', 'suspended');
 CREATE TYPE collaborator_role    AS ENUM ('editor', 'moderator');
 CREATE TYPE pledge_status        AS ENUM ('pending', 'paid', 'refunded', 'failed');
 CREATE TYPE transaction_type     AS ENUM ('payment', 'refund', 'payout');

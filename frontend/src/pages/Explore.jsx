@@ -10,6 +10,8 @@ const STATUS_OPTIONS = [
   ['', 'Mọi trạng thái'],
   ['active', 'Đang gây quỹ'],
   ['successful', 'Thành công'],
+  ['awaiting_disbursement', 'Chờ giải ngân'],
+  ['disbursed', 'Đã giải ngân'],
   ['in_progress', 'Đang triển khai'],
   ['failed', 'Thất bại'],
   ['canceled', 'Đã dừng'],

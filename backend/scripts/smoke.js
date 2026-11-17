@@ -554,15 +554,15 @@ async function main() {
     body: { amount: 100000 },
   });
   check(
-    'Tài trợ đủ mục tiêu tự chuyển hoàn thành',
-    pledgeC.status === 201 && pledgeC.data?.project?.status === 'successful',
+    'Tài trợ đủ mục tiêu tự chuyển chờ giải ngân',
+    pledgeC.status === 201 && pledgeC.data?.project?.status === 'awaiting_disbursement',
     JSON.stringify(pledgeC.data),
   );
 
   const detailC = await request('GET', `/projects/${projectC}`, { token: newToken });
   check(
     'Dự án hoàn thành có completed_at và ngừng nhận tài trợ',
-    detailC.data?.status === 'successful' && !!detailC.data?.completed_at && detailC.data?.can_pledge === false,
+    detailC.data?.status === 'awaiting_disbursement' && !!detailC.data?.completed_at && detailC.data?.can_pledge === false,
     JSON.stringify({ status: detailC.data?.status, completed_at: detailC.data?.completed_at }),
   );
   const autoPayout = detailC.data?.payouts?.[0];
@@ -572,8 +572,8 @@ async function main() {
     JSON.stringify(detailC.data?.payouts),
   );
   check(
-    'Trạng thái giải ngân ban đầu là chưa giải ngân',
-    detailC.data?.disbursement?.status === 'not_disbursed' &&
+    'Trạng thái giải ngân ban đầu là chờ giải ngân',
+    detailC.data?.disbursement?.status === 'pending' &&
       detailC.data?.disbursement?.can_disburse === false &&
       Number(detailC.data?.disbursement?.pending_amount) === 100000,
     JSON.stringify(detailC.data?.disbursement),
@@ -633,8 +633,8 @@ async function main() {
 
     const afterDisburse = await request('GET', `/projects/${projectC}`, { token: newToken });
     check(
-      'Dự án chuyển sang đang triển khai sau giải ngân',
-      afterDisburse.data?.status === 'in_progress',
+      'Dự án chuyển sang đã giải ngân sau khi admin duyệt',
+      afterDisburse.data?.status === 'disbursed',
       JSON.stringify({ status: afterDisburse.data?.status }),
     );
     check(
@@ -644,6 +644,41 @@ async function main() {
         !!afterDisburse.data?.disbursement?.disbursed_at &&
         !!afterDisburse.data?.disbursement?.disbursed_by_name,
       JSON.stringify(afterDisburse.data?.disbursement),
+    );
+
+    const backerNotifications = await request('GET', '/me/notifications', { token: backer.token });
+    check(
+      'Backer nhận thông báo khi admin duyệt giải ngân',
+      backerNotifications.data?.items?.some(
+        (n) => n.link === `/du-an/${projectC}` && n.type === 'payout' && String(n.content).includes('giải ngân'),
+      ),
+      JSON.stringify(backerNotifications.data?.items?.slice(0, 3)),
+    );
+    const ownerNotifications = await request('GET', '/me/notifications', { token: newToken });
+    check(
+      'Chủ dự án nhận thông báo khi admin duyệt giải ngân',
+      ownerNotifications.data?.items?.some(
+        (n) => n.link === `/quan-ly/${projectC}` && String(n.content).includes('giải ngân'),
+      ),
+      JSON.stringify(ownerNotifications.data?.items?.slice(0, 3)),
+    );
+
+    const startImpl = await request('POST', `/projects/${projectC}/start-implementation`, {
+      token: newToken,
+    });
+    check(
+      'Chủ dự án bắt đầu triển khai sau khi giải ngân',
+      startImpl.status === 200 && startImpl.data?.project?.status === 'in_progress',
+      JSON.stringify(startImpl.data),
+    );
+
+    const adminNotifications = await request('GET', '/me/notifications', { token: admin.token });
+    check(
+      'Admin nhận thông báo khi dự án bắt đầu triển khai',
+      adminNotifications.data?.items?.some(
+        (n) => n.link === `/admin/du-an/${projectC}` || (n.link === '/admin/du-an' && String(n.content).includes('triển khai')),
+      ),
+      JSON.stringify(adminNotifications.data?.items?.slice(0, 3)),
     );
 
     const updateC = await request('POST', `/projects/${projectC}/updates`, {

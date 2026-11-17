@@ -493,7 +493,7 @@ export function Admin({ tab = 'tong-quan' }) {
                 <div className="min-w-52 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <b>{p.project_title}</b>
-                    <span className={`badge ${p.project_status === 'successful' ? 'bg-blue-100 text-blue-700' : p.project_status === 'in_progress' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
+                    <span className={`badge ${p.project_status === 'successful' ? 'bg-blue-100 text-blue-700' : p.project_status === 'awaiting_disbursement' ? 'bg-amber-100 text-amber-700' : p.project_status === 'disbursed' ? 'bg-teal-100 text-teal-700' : p.project_status === 'in_progress' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
                       {statusVi[p.project_status] || p.project_status}
                     </span>
                   </div>

@@ -207,13 +207,15 @@ export default function ProjectDetail() {
   else if (currentUser.role === 'admin') donateMessage = 'Quản trị viên không thực hiện tài trợ.';
   else if (project.status === 'suspended') donateMessage = 'Dự án đang tạm ngưng do chủ dự án bị khóa tài khoản.';
   else if (project.status === 'successful') donateMessage = 'Dự án đã đạt mục tiêu và ngừng nhận tài trợ.';
+  else if (project.status === 'awaiting_disbursement') donateMessage = 'Dự án đã đạt mục tiêu, đang chờ giải ngân và không nhận tài trợ mới.';
+  else if (project.status === 'disbursed') donateMessage = 'Dự án đã được giải ngân và không nhận tài trợ mới.';
   else if (project.status === 'in_progress') donateMessage = 'Dự án đang triển khai và không nhận tài trợ mới.';
   else if (project.status !== 'active') donateMessage = 'Dự án không ở trạng thái đang gây quỹ.';
   else if (ended) donateMessage = 'Chiến dịch đã hết hạn.';
 
   const disbursement = project.disbursement || null;
   const showDisbursement =
-    ['successful', 'in_progress'].includes(project.status) ||
+    ['successful', 'awaiting_disbursement', 'disbursed', 'in_progress'].includes(project.status) ||
     disbursement?.is_disbursed ||
     Number(disbursement?.pending_amount || 0) > 0;
 

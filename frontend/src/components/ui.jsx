@@ -8,6 +8,8 @@ export function statusColor(status) {
     {
       active: 'bg-emerald-100 text-emerald-700',
       successful: 'bg-blue-100 text-blue-700',
+      awaiting_disbursement: 'bg-amber-100 text-amber-700',
+      disbursed: 'bg-teal-100 text-teal-700',
       in_progress: 'bg-indigo-100 text-indigo-700',
       failed: 'bg-red-100 text-red-700',
       pending_review: 'bg-amber-100 text-amber-700',

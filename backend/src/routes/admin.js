@@ -5,9 +5,10 @@ import { ApiError, asyncHandler } from '../lib/errors.js';
 import { parse } from '../lib/validate.js';
 import { mapProject, KYC_COLUMNS, mapKyc } from '../lib/mappers.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
-import { notify } from '../services/notifications.js';
+import { notify, notifyAdmins } from '../services/notifications.js';
 import { lockAccount, unlockAccount } from '../services/account.js';
 import { getFraudModelInfo, getModelCard } from '../services/ai.js';
+import { SUCCESS_STATUS_SQL, SUCCESS_STATUSES } from '../lib/project-status.js';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -40,7 +41,7 @@ router.get(
       select
         (select coalesce(sum(current_amount), 0) from projects)::numeric as total_raised,
         (select count(*) from projects where status = 'active')::int as active_projects,
-        (select count(*) from projects where status in ('successful', 'in_progress'))::int as successful_projects,
+        (select count(*) from projects where status in (${SUCCESS_STATUS_SQL}))::int as successful_projects,
         (select count(*) from projects where status = 'failed')::int as failed_projects,
         (select count(*) from projects)::int as total_projects,
         (select count(*) from fraud_flags where review_status = 'pending')::int as open_flags,
@@ -267,13 +268,13 @@ router.get(
               a.full_name as processed_by_name,
               case
                 when t.status = 'pending'
-                 and p.status in ('successful', 'in_progress')
+                 and p.status in (${SUCCESS_STATUS_SQL})
                  and p.end_date <= current_date then true
                 else false
               end as can_disburse,
               case
                 when t.status <> 'pending' then null
-                when p.status not in ('successful', 'in_progress') then 'Dự án chưa hoàn thành.'
+                when p.status not in (${SUCCESS_STATUS_SQL}) then 'Dự án chưa hoàn thành.'
                 when p.end_date > current_date
                   then 'Chờ tới ngày kết thúc ' || to_char(p.end_date, 'DD/MM/YYYY') || ' mới được giải ngân.'
                 else null
@@ -313,7 +314,7 @@ router.post(
       if (row.status !== 'pending') {
         throw new ApiError(400, 'Yêu cầu giải ngân không ở trạng thái chờ duyệt.');
       }
-      if (!['successful', 'in_progress'].includes(row.project_status)) {
+      if (!SUCCESS_STATUSES.includes(row.project_status)) {
         throw new ApiError(400, 'Dự án chưa hoàn thành nên chưa thể giải ngân.');
       }
       if (row.end_date > new Date().toISOString().slice(0, 10)) {
@@ -331,35 +332,47 @@ router.post(
         [req.user.id, row.id],
       );
 
-      if (row.project_status === 'successful') {
-        await client.query(
-          `update projects
-              set status = 'in_progress',
-                  completed_at = coalesce(completed_at, now())
-            where id = $1`,
-          [row.project_id],
-        );
-      }
+      const nextProjectStatus = ['successful', 'awaiting_disbursement', 'disbursed'].includes(row.project_status)
+        ? 'disbursed'
+        : row.project_status;
+      await client.query(
+        `update projects
+            set status = $1::project_status,
+                completed_at = coalesce(completed_at, now()),
+                updated_at = now()
+          where id = $2`,
+        [nextProjectStatus, row.project_id],
+      );
 
       const amountText = Number(row.amount).toLocaleString('vi-VN');
-      const link = `/quan-ly/${row.project_id}`;
+      const statusLabel = nextProjectStatus === 'in_progress' ? 'Đang triển khai' : 'Đã giải ngân';
+      const ownerHint = nextProjectStatus === 'disbursed'
+        ? ' Bạn có thể bấm “Bắt đầu triển khai” khi sẵn sàng cập nhật tiến độ.'
+        : '';
       await notify(client, row.owner_id, {
         type: 'payout',
-        content: `Dự án “${row.title}” đã được giải ngân ${amountText}đ. Dự án chuyển sang trạng thái “Đang triển khai”; bạn có thể cập nhật tiến độ.`,
-        link,
+        content: `Dự án “${row.title}” đã được giải ngân ${amountText}đ. Trạng thái dự án: “${statusLabel}”.${ownerHint}`,
+        link: `/quan-ly/${row.project_id}`,
       });
       await notifyProjectAudience(client, row.project_id, {
         type: 'payout',
-        content: `Dự án “${row.title}” đã được giải ngân ${amountText}đ và chuyển sang trạng thái đang triển khai.`,
+        content: `Dự án “${row.title}” đã được giải ngân ${amountText}đ và chuyển sang trạng thái “${statusLabel}”.`,
         link: `/du-an/${row.project_id}`,
+        excludeUserId: req.user.id,
+      });
+      await notifyAdmins(client, {
+        type: 'payout',
+        content: `Yêu cầu giải ngân ${amountText}đ cho dự án “${row.title}” đã được duyệt.`,
+        link: '/admin/giai-ngan',
+        excludeUserId: req.user.id,
       });
 
-      return updated.rows[0];
+      return { transaction: updated.rows[0], statusLabel };
     });
 
     res.json({
-      transaction: { ...payout, amount: Number(payout.amount) },
-      message: 'Đã duyệt giải ngân và chuyển dự án sang trạng thái đang triển khai.',
+      transaction: { ...payout.transaction, amount: Number(payout.transaction.amount) },
+      message: `Đã duyệt giải ngân, dự án chuyển sang trạng thái “${payout.statusLabel}”.`,
     });
   }),
 );
@@ -390,10 +403,23 @@ router.post(
         [req.user.id, row.id],
       );
 
+      const amountText = Number(row.amount).toLocaleString('vi-VN');
       await notify(client, row.owner_id, {
         type: 'payout',
-        content: `Yêu cầu giải ngân ${Number(row.amount).toLocaleString('vi-VN')}đ cho “${row.title}” bị từ chối.`,
+        content: `Yêu cầu giải ngân ${amountText}đ cho “${row.title}” bị từ chối. Dự án vẫn giữ nguyên trạng thái; bạn có thể gửi yêu cầu giải ngân mới.`,
         link: `/quan-ly/${row.project_id}`,
+      });
+      await notifyProjectAudience(client, row.project_id, {
+        type: 'payout',
+        content: `Yêu cầu giải ngân ${amountText}đ của dự án “${row.title}” đã bị từ chối. Chủ dự án có thể gửi yêu cầu mới.`,
+        link: `/du-an/${row.project_id}`,
+        excludeUserId: req.user.id,
+      });
+      await notifyAdmins(client, {
+        type: 'payout',
+        content: `Yêu cầu giải ngân ${amountText}đ cho dự án “${row.title}” đã bị từ chối.`,
+        link: '/admin/giai-ngan',
+        excludeUserId: req.user.id,
       });
 
       return updated.rows[0];
