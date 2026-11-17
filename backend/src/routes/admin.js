@@ -148,10 +148,13 @@ router.post(
     if (!rows.length) throw new ApiError(400, 'Dự án không ở trạng thái chờ duyệt.');
     const project = rows[0];
 
-    await notify(pool, project.owner_id, {
+    await notifyProjectStakeholders(pool, project, {
       type: 'project',
-      content: `Dự án “${project.title}” đã được duyệt và công khai.`,
-      link: `/du-an/${project.id}`,
+      content: `Dự án “${project.title}” đã được duyệt và công khai, bắt đầu nhận tài trợ.`,
+      ownerContent: `Dự án “${project.title}” đã được duyệt và công khai.`,
+      adminContent: `Dự án “${project.title}” vừa được duyệt công khai.`,
+      ownerLink: `/du-an/${project.id}`,
+      actorId: req.user.id,
     });
 
     res.json({ project: mapProject(project), message: 'Đã duyệt công khai dự án.' });
@@ -170,10 +173,12 @@ router.post(
     if (!rows.length) throw new ApiError(400, 'Dự án không ở trạng thái chờ duyệt.');
     const project = rows[0];
 
-    await notify(pool, project.owner_id, {
+    await notifyProjectStakeholders(pool, project, {
       type: 'project',
-      content: `Dự án “${project.title}” bị từ chối. Lý do: ${body.reason}`,
-      link: `/quan-ly/${project.id}`,
+      content: `Dự án “${project.title}” đã bị từ chối. Lý do: ${body.reason}`,
+      ownerContent: `Dự án “${project.title}” bị từ chối. Lý do: ${body.reason}`,
+      adminContent: `Dự án “${project.title}” đã bị từ chối duyệt.`,
+      actorId: req.user.id,
     });
 
     res.json({ project: mapProject(project), message: 'Đã từ chối dự án.' });
@@ -247,6 +252,41 @@ async function notifyProjectAudience(db, projectId, { type = 'payout', content, 
       where ($5::uuid is null or x.user_id <> $5)`,
     [projectId, type, content, link, excludeUserId],
   );
+}
+
+/**
+ * Thông báo cho chủ dự án, nhà tài trợ, người theo dõi, cộng tác viên và admin
+ * mỗi khi trạng thái dự án thay đổi.
+ */
+async function notifyProjectStakeholders(
+  db,
+  project,
+  {
+    type = 'project',
+    content,
+    ownerContent = content,
+    adminContent = content,
+    audienceLink = `/du-an/${project.id}`,
+    ownerLink = `/quan-ly/${project.id}`,
+    adminLink = '/admin/du-an',
+    actorId = null,
+  },
+) {
+  await notifyProjectAudience(db, project.id, {
+    type,
+    content,
+    link: audienceLink,
+    excludeUserId: actorId,
+  });
+  if (project.owner_id !== actorId) {
+    await notify(db, project.owner_id, { type, content: ownerContent, link: ownerLink });
+  }
+  await notifyAdmins(db, {
+    type,
+    content: adminContent,
+    link: adminLink,
+    excludeUserId: actorId,
+  });
 }
 
 router.get(
@@ -481,11 +521,17 @@ router.patch(
           [flag.entity_id],
         );
         if (p.rowCount) {
-          await notify(pool, p.rows[0].owner_id, {
-            type: 'fraud',
-            content: `Dự án “${p.rows[0].title}” đã bị tạm dừng do xác nhận gian lận.`,
-            link: `/quan-ly/${flag.entity_id}`,
-          });
+          await notifyProjectStakeholders(
+            pool,
+            { id: flag.entity_id, title: p.rows[0].title, owner_id: p.rows[0].owner_id },
+            {
+              type: 'fraud',
+              content: `Dự án “${p.rows[0].title}” đã bị dừng do xác nhận gian lận. Nhà tài trợ sẽ được hoàn tiền theo quy trình.`,
+              ownerContent: `Dự án “${p.rows[0].title}” đã bị tạm dừng do xác nhận gian lận.`,
+              adminContent: `Dự án “${p.rows[0].title}” đã bị dừng do xác nhận gian lận.`,
+              actorId: req.user.id,
+            },
+          );
         }
       } else if (flag.entity_type === 'user') {
         await lockAccount(flag.entity_id, {
