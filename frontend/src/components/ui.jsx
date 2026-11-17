@@ -360,7 +360,6 @@ export function PredictionExplain({ prediction, fallbackScore = null, compact = 
   const label = prediction?.label_text || predictionLabel(score);
   const confidence = Number(prediction?.confidence ?? 0);
   const modelVersion = prediction?.model?.version || prediction?.model_version || null;
-  const metrics = parseJson(prediction?.model?.metrics ?? prediction?.model_metrics, {});
   const contributions = asArray(prediction?.contributions);
   const sorted = [...contributions].sort(
     (a, b) => Math.abs(Number(b.effect_pp || 0)) - Math.abs(Number(a.effect_pp || 0)),
@@ -415,26 +414,6 @@ export function PredictionExplain({ prediction, fallbackScore = null, compact = 
           })}
         </div>
       )}
-
-      <details className="mt-3 text-xs text-slate-600">
-        <summary className="cursor-pointer font-semibold text-slate-700">Cách mô hình được huấn luyện và kiểm định</summary>
-        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {Object.entries(METRIC_LABELS).map(([key, labelText]) =>
-            metrics[key] !== undefined && metrics[key] !== null ? (
-              <div key={key} className="rounded-lg bg-white/70 p-2">
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">{labelText}</div>
-                <b className="text-sm text-slate-700">{metrics[key]}</b>
-              </div>
-            ) : null,
-          )}
-        </div>
-        <p className="mt-2">
-          Mô hình phân loại được huấn luyện và kiểm định chéo 5 fold trên các dự án đã kết thúc. Mô hình chỉ dùng
-          tín hiệu có trước khi chiến dịch chạy; điểm tín nhiệm chủ dự án đã bao gồm KYC và lịch sử hoạt động.
-          {metrics.n ? ` Cỡ mẫu kiểm định: ${metrics.n} dự án.` : ''}
-          {metrics.baseline_accuracy !== undefined ? ` Baseline đoán theo đa số: ${Math.round(Number(metrics.baseline_accuracy) * 100)}%.` : ''}
-        </p>
-      </details>
     </AIBox>
   );
 }
