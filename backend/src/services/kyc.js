@@ -198,6 +198,32 @@ let workerPromise = null;
 let queue = Promise.resolve();
 const cachePath = path.join(os.tmpdir(), 'gayquy-ocr');
 
+async function createKycWorker() {
+  try {
+    const worker = await createWorker('vie+eng', 1, {
+      cachePath,
+      logger: () => {},
+    });
+    // PSM 6 đọc giấy tờ dạng khối chữ tốt hơn chế độ tự động trên ảnh chụp card.
+    await worker.setParameters({
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
+    });
+    return worker;
+  } catch (err) {
+    console.error('[kyc] Không tải được gói tiếng Việt, dùng eng:', err.message);
+    const worker = await createWorker('eng', 1, {
+      cachePath,
+      logger: () => {},
+    });
+    await worker.setParameters({
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
+    });
+    return worker;
+  }
+}
+
 async function getWorker() {
   if (!workerPromise) {
     workerPromise = createKycWorker().catch((err) => {
