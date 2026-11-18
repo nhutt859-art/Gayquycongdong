@@ -471,8 +471,8 @@ async function main() {
     const mockPage = await fetch(pledge.data.payment_url);
     const html = await mockPage.text();
     check(
-      'Trang mô phỏng VNPay hiển thị đúng',
-      mockPage.status === 200 && html.includes('MÔ PHỎNG') && html.includes('100.000'),
+      'Trang thanh toán VNPay hiển thị đúng',
+      mockPage.status === 200 && html.includes('VNPAY') && html.includes('100.000'),
       `HTTP ${mockPage.status}`,
     );
   }

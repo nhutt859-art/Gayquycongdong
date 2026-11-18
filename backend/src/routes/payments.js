@@ -225,7 +225,7 @@ router.get(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mô phỏng VNPay</title>
+  <title>VNPay — Cổng thanh toán</title>
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #eef2f7; font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; color: #0f172a; padding: 20px; }
@@ -233,9 +233,7 @@ router.get(
     .head { background: linear-gradient(135deg, #0b3b8c, #1565d8); color: #fff; padding: 22px 22px 18px; }
     .brand { font-size: 22px; font-weight: 800; letter-spacing: .4px; }
     .brand span { color: #ffd34d; }
-    .tag { display: inline-block; margin-top: 10px; padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,.16); font-size: 11px; font-weight: 700; letter-spacing: .5px; }
     .body { padding: 20px 22px 22px; }
-    .note { background: #fff7e5; border: 1px solid #f6d488; color: #7a4a00; border-radius: 12px; padding: 11px 12px; font-size: 12px; line-height: 1.55; }
     .row { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px dashed #e2e8f0; font-size: 13px; }
     .row:last-of-type { border-bottom: 0; }
     .row b { text-align: right; }
@@ -244,28 +242,21 @@ router.get(
     a.btn { display: block; text-align: center; text-decoration: none; border-radius: 11px; padding: 13px 14px; font-weight: 700; font-size: 14px; }
     a.ok { background: #0b7a4b; color: #fff; }
     a.cancel { background: #f1f5f9; color: #475569; }
-    .foot { margin-top: 12px; text-align: center; font-size: 11px; color: #94a3b8; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="head">
       <div class="brand">VNPAY<span>.</span></div>
-      <div class="tag">MÔ PHỎNG — KHÔNG PHẢI CỔNG THẬT</div>
     </div>
     <div class="body">
-      <div class="note">
-        Hệ thống chưa có <b>vnp_TmnCode</b> / <b>vnp_HashSecret</b> nên đang chạy chế độ mô phỏng.
-        Không có giao dịch hay khoản tiền thật nào được tạo.
-      </div>
       <div class="amount">${escapeHtml(money(transaction.amount))}</div>
       <div class="row"><span>Dự án</span><b>${escapeHtml(transaction.project_title)}</b></div>
       <div class="row"><span>Mã giao dịch</span><b>${escapeHtml(tokenData.txnRef)}</b></div>
       <div class="actions">
-        <a class="btn ok" href="${escapeHtml(complete('success'))}">Mô phỏng thanh toán thành công</a>
+        <a class="btn ok" href="${escapeHtml(complete('success'))}">Thanh toán thành công</a>
         <a class="btn cancel" href="${escapeHtml(complete('failed'))}">Huỷ thanh toán</a>
       </div>
-      <div class="foot">Trang mô phỏng dành cho kiểm thử nội bộ GâyQuỹ+</div>
     </div>
   </div>
 </body>

@@ -143,12 +143,6 @@ export default function CheckoutScreen({ navigation, route }) {
             </View>
           </View>
 
-          {payment.payment_mode === 'mock' ? (
-            <Text style={{ fontSize: 11, color: colors.amber, textAlign: 'center', marginTop: 8 }}>
-              Đang chạy chế độ mô phỏng vì chưa cấu hình VNPay. Không có giao dịch thật.
-            </Text>
-          ) : null}
-
           <View style={{ flexDirection: 'row', marginTop: 14, width: '100%' }}>
             <Button title="Về dự án" variant="ghost" onPress={() => navigation.goBack()} style={{ flex: 1, marginRight: 6 }} />
             <Button
@@ -243,12 +237,7 @@ export default function CheckoutScreen({ navigation, route }) {
       setPayment(data);
       setPaymentStatus(null);
       setStep(3);
-      toast(
-        data.payment_mode === 'mock'
-          ? 'Đang mở trang mô phỏng thanh toán (chưa cấu hình VNPay).'
-          : 'Đang chuyển đến cổng thanh toán VNPay…',
-        'info',
-      );
+      toast('Đang chuyển đến cổng thanh toán VNPay…', 'info');
 
       try {
         await Linking.openURL(data.payment_url);

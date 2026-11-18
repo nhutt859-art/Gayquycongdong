@@ -83,12 +83,7 @@ export default function Checkout() {
         method: 'VNPay',
       });
       if (!data?.payment_url) throw new Error('Không nhận được liên kết thanh toán VNPay.');
-      toast(
-        data.payment_mode === 'mock'
-          ? 'Đang mở trang mô phỏng thanh toán (chưa cấu hình VNPay).'
-          : 'Đang chuyển đến cổng thanh toán VNPay…',
-        'info',
-      );
+      toast('Đang chuyển đến cổng thanh toán VNPay…', 'info');
       window.location.assign(data.payment_url);
     } catch (err) {
       setError(err.message);

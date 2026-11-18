@@ -294,8 +294,7 @@ export function Layout({ children }) {
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
       <footer className="py-8 text-center text-xs text-slate-500">
-        GâyQuỹ+ — Nền tảng gây quỹ cộng đồng minh bạch + AI. Mô hình dự đoán được huấn luyện và kiểm định chéo
-        trên dữ liệu các dự án đã kết thúc.
+        GâyQuỹ+ — Nền tảng gây quỹ cộng đồng minh bạch + AI.
       </footer>
       <Modal
         open={logoutOpen}

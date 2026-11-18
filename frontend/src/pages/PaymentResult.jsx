@@ -57,7 +57,7 @@ const RESULT_COPY = {
     icon: '⚠️',
     title: 'Chưa kiểm tra được giao dịch',
     tone: 'warn',
-    description: 'Không kết nối được máy chủ. Bạn có thể bấm “Kiểm tra lại” sau vài giây.',
+    description: 'Không kết nối được máy chủ. Vui lòng tải lại trang sau vài giây.',
   },
 };
 
@@ -69,38 +69,31 @@ export default function PaymentResult() {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState(txnRef ? 'pending' : queryResult || 'missing');
   const [error, setError] = useState('');
-  const [checking, setChecking] = useState(Boolean(txnRef));
   const [timedOut, setTimedOut] = useState(false);
   const timerRef = useRef(null);
 
-  const check = useCallback(
-    async ({ silent = false } = {}) => {
-      if (!txnRef) return 'missing';
-      if (!silent) setChecking(true);
-      try {
-        const result = await api.get(`/payments/status/${encodeURIComponent(txnRef)}`);
-        setData(result);
-        setStatus(result.result);
-        setError('');
-        return result.result;
-      } catch (err) {
-        if (err.status === 401) {
-          setStatus('auth');
-          setError('Bạn cần đăng nhập để xem trạng thái giao dịch.');
-        } else if (err.status === 404) {
-          setStatus('not_found');
-          setError(err.message);
-        } else {
-          setStatus('error');
-          setError(err.message);
-        }
-        return 'error';
-      } finally {
-        setChecking(false);
+  const check = useCallback(async () => {
+    if (!txnRef) return 'missing';
+    try {
+      const result = await api.get(`/payments/status/${encodeURIComponent(txnRef)}`);
+      setData(result);
+      setStatus(result.result);
+      setError('');
+      return result.result;
+    } catch (err) {
+      if (err.status === 401) {
+        setStatus('auth');
+        setError('Bạn cần đăng nhập để xem trạng thái giao dịch.');
+      } else if (err.status === 404) {
+        setStatus('not_found');
+        setError(err.message);
+      } else {
+        setStatus('error');
+        setError(err.message);
       }
-    },
-    [txnRef],
-  );
+      return 'error';
+    }
+  }, [txnRef]);
 
   useEffect(() => {
     if (!txnRef) {
@@ -113,12 +106,12 @@ export default function PaymentResult() {
 
     const poll = async () => {
       if (cancelled) return;
-      const result = await check({ silent: attempt > 0 });
+      const result = await check();
       if (cancelled) return;
       attempt += 1;
 
-      if (result === 'pending' && attempt < 6) {
-        timerRef.current = setTimeout(poll, 1800);
+      if (result === 'pending' && attempt < 15) {
+        timerRef.current = setTimeout(poll, attempt < 6 ? 1800 : 3500);
       } else if (result === 'pending') {
         setTimedOut(true);
       }
@@ -202,11 +195,6 @@ export default function PaymentResult() {
           <Link to="/ca-nhan" className="btn-ghost text-sm">
             Lịch sử đóng góp
           </Link>
-          {txnRef && (
-            <button className="btn-primary text-sm disabled:opacity-60" onClick={() => check()} disabled={checking}>
-              {checking ? <><Spinner className="mr-1 h-3 w-3" /> Đang kiểm tra…</> : 'Kiểm tra lại'}
-            </button>
-          )}
         </div>
       </div>
 
@@ -216,8 +204,8 @@ export default function PaymentResult() {
         </AIBox>
       ) : pending ? (
         <AIBox variant="info" title="Vì sao chưa thấy cập nhật?">
-          Nếu bạn đã thanh toán thành công, hãy giữ trang này mở thêm vài giây hoặc bấm “Kiểm tra lại”.
-          Hệ thống chỉ cộng tiền sau khi nhận được xác nhận chính thức từ VNPay.
+          Trang sẽ tự động cập nhật khi VNPay gửi xác nhận về hệ thống. Bạn chỉ cần giữ trang này mở thêm vài giây.
+          Khoản tài trợ chỉ được cộng sau khi nhận được xác nhận chính thức từ VNPay.
         </AIBox>
       ) : (
         <AIBox variant="warn" title="Bạn chưa bị trừ tiền">
