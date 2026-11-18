@@ -472,7 +472,11 @@ async function main() {
     const html = await mockPage.text();
     check(
       'Trang thanh toán VNPay hiển thị đúng',
-      mockPage.status === 200 && html.includes('VNPAY') && html.includes('100.000'),
+      mockPage.status === 200 &&
+        html.includes('VNPAY') &&
+        html.includes('100.000') &&
+        !html.includes('MÔ PHỎNG') &&
+        !html.includes('vnp_TmnCode'),
       `HTTP ${mockPage.status}`,
     );
   }
