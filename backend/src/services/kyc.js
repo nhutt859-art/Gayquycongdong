@@ -68,23 +68,10 @@ function pad2(value) {
   return String(value).padStart(2, '0');
 }
 
-function extractOcrDates(text) {
-  const dates = new Set();
-  const normalized = normalizeOcrText(text);
-  for (const match of normalized.matchAll(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b/g)) {
-    dates.add(`${pad2(match[1])}/${pad2(match[2])}/${match[3]}`);
-  }
-  for (const match of normalized.matchAll(/\b(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})\b/g)) {
-    dates.add(`${pad2(match[3])}/${pad2(match[2])}/${match[1]}`);
-  }
-  return dates;
-}
-
 function dobMatches(text, dob) {
-  const [year, month, day] = String(dob).split('-');
-  if (!year || !month || !day) return false;
-  const wanted = `${day}/${month}/${year}`;
-  return extractOcrDates(text).has(wanted);
+  const wanted = String(dob || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(wanted)) return false;
+  return rawLines(text).some((line) => datesInLine(line).includes(wanted));
 }
 
 function nameMatches(text, fullName) {
@@ -162,17 +149,37 @@ function assertDocumentContent(text, data) {
 // ------------------------------------------------------------
 // Trích xuất thông tin từ văn bản OCR (dùng cho tự điền biểu mẫu).
 // ------------------------------------------------------------
-const NAME_LABELS = ['HO VA TEN', 'HO TEN', 'FULL NAME', 'FULLNAME', 'NAME', 'TEN'];
-const DOB_LABELS = ['NGAY SINH', 'SINH NGAY', 'DATE OF BIRTH', 'BIRTH DATE', 'DOB', 'BIRTH'];
+const NAME_LABELS = [
+  'HO CHU DEM VA TEN KHAI SINH',
+  'HO CHU DEM VA TEN',
+  'HO VA TEN KHAI SINH',
+  'HO VA TEN',
+  'HO TEN',
+  'TEN KHAI SINH',
+  'FULL NAME',
+  'FULLNAME',
+  'NAME',
+  'TEN',
+];
+const DOB_LABELS = [
+  'NGAY THANG NAM SINH',
+  'NGAY SINH',
+  'SINH NGAY',
+  'DATE OF BIRTH',
+  'BIRTH DATE',
+  'DOB',
+  'BIRTH',
+];
 const ADDRESS_LABELS = [
   'NOI THUONG TRU',
   'NOI DANG KY THUONG TRU',
   'NOI DKHKTT',
   'THUONG TRU',
   'DKHKTT',
+  'NOI CU TRU',
+  'NOI O',
   'ADDRESS',
   'RESIDENCE',
-  'NOI O',
 ];
 const NUMBER_LABELS = [
   'SO DINH DANH CA NHAN',
@@ -189,10 +196,15 @@ const NUMBER_LABELS = [
   'S0',
 ];
 const STOP_LABELS = [
+  'HO CHU DEM VA TEN KHAI SINH',
+  'HO CHU DEM VA TEN',
+  'HO VA TEN KHAI SINH',
   'HO VA TEN',
   'HO TEN',
+  'TEN KHAI SINH',
   'FULL NAME',
   'FULLNAME',
+  'NGAY THANG NAM SINH',
   'NGAY SINH',
   'SINH NGAY',
   'DATE OF BIRTH',
@@ -202,6 +214,7 @@ const STOP_LABELS = [
   'NOI DKHKTT',
   'THUONG TRU',
   'DKHKTT',
+  'NOI CU TRU',
   'SO DINH DANH CA NHAN',
   'SO DINH DANH',
   'SO CCCD',
@@ -335,15 +348,24 @@ function dateFromParts(day, month, year) {
   return `${y}-${pad2(m)}-${pad2(d)}`;
 }
 
+const OCR_DATE_CHARS = '[0-9OQDGILSZB]';
+
 function datesInLine(line) {
   const normalized = normalizeOcrText(line);
   const dates = [];
-  for (const match of normalized.matchAll(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/g)) {
-    const date = dateFromParts(match[1], match[2], match[3]);
-    if (date) dates.push(date);
-  }
-  for (const match of normalized.matchAll(/(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})/g)) {
-    const date = dateFromParts(match[3], match[2], match[1]);
+  const pattern = new RegExp(
+    `(${OCR_DATE_CHARS}{1,4})[/.-](${OCR_DATE_CHARS}{1,2})[/.-](${OCR_DATE_CHARS}{2,4})`,
+    'g',
+  );
+  for (const match of normalized.matchAll(pattern)) {
+    const parts = [match[1], match[2], match[3]].map((part) => ocrDigits(part));
+    // OCR hay nhầm O/Q/D -> 0, I/L -> 1, S -> 5, B -> 8, Z -> 2 trong ngày sinh.
+    const date =
+      parts[0].length === 4
+        ? dateFromParts(parts[2], parts[1], parts[0])
+        : parts[2].length === 4
+          ? dateFromParts(parts[0], parts[1], parts[2])
+          : null;
     if (date) dates.push(date);
   }
   return dates;
@@ -468,12 +490,35 @@ function writeOcrCache(hash, text) {
   ocrCache.set(hash, { text, at: Date.now() });
 }
 
-async function getWorker() {
-  if (!workerPromise) {
-    workerPromise = createWorker('eng', 1, {
+async function createKycWorker() {
+  try {
+    const worker = await createWorker('vie+eng', 1, {
       cachePath,
       logger: () => {},
-    }).catch((err) => {
+    });
+    // PSM 6 đọc giấy tờ dạng khối chữ tốt hơn chế độ tự động trên ảnh chụp card.
+    await worker.setParameters({
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
+    });
+    return worker;
+  } catch (err) {
+    console.error('[kyc] Không tải được gói tiếng Việt, dùng eng:', err.message);
+    const worker = await createWorker('eng', 1, {
+      cachePath,
+      logger: () => {},
+    });
+    await worker.setParameters({
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
+    });
+    return worker;
+  }
+}
+
+async function getWorker() {
+  if (!workerPromise) {
+    workerPromise = createKycWorker().catch((err) => {
       workerPromise = null;
       throw err;
     });

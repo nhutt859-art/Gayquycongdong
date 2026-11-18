@@ -31,6 +31,7 @@ import {
   maxBirthDate,
   minBirthDate,
   preferScannedName,
+  shouldFillScannedField,
   validateKycDraft,
 } from '../lib/kyc';
 
@@ -261,7 +262,12 @@ export default function Profile() {
     setKycForm((value) => {
       const next = { ...value };
       for (const key of filled) {
-        next[key] = key === 'full_name' ? preferScannedName(value.full_name, fields[key]) : fields[key];
+        next[key] =
+          key === 'full_name'
+            ? preferScannedName(value.full_name, fields[key])
+            : shouldFillScannedField(key, value[key], value.document_type)
+              ? fields[key]
+              : value[key];
       }
       return next;
     });
@@ -322,7 +328,7 @@ export default function Profile() {
         const missing = (scan?.missing || []).map((key) => KYC_SCAN_FIELD_LABELS[key]).filter(Boolean);
         setKycScanNote({
           tone: 'success',
-          text: `Đã tự điền ${labels.join(', ')} từ ảnh. Vui lòng kiểm tra lại.${missing.length ? ` Chưa đọc được: ${missing.join(', ')}.` : ''}`,
+          text: `Đã đọc được ${labels.join(', ')} từ ảnh. Vui lòng kiểm tra lại.${missing.length ? ` Chưa đọc được: ${missing.join(', ')}.` : ''}`,
         });
       } else {
         setKycScanNote({
