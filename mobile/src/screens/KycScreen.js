@@ -338,7 +338,7 @@ export default function KycScreen({ navigation }) {
           placeholder={documentType.numberPlaceholder}
           autoCapitalize="characters"
           autoCorrect={false}
-          hint={`${documentType.numberHint} Số giấy tờ phải khớp với ảnh tải lên.`}
+          hint={`${documentType.numberHint} Số này được dùng để kiểm tra trùng lặp.`}
           error={fieldErrors.document_number}
         />
 

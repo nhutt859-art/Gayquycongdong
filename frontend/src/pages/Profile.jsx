@@ -821,7 +821,7 @@ export default function Profile() {
               placeholder={documentType.numberPlaceholder}
               autoComplete="off"
             />
-            <p className="mt-1 text-[11px] text-slate-500">{documentType.numberHint} Số giấy tờ phải khớp với ảnh tải lên.</p>
+            <p className="mt-1 text-[11px] text-slate-500">{documentType.numberHint} Số này được dùng để kiểm tra trùng lặp.</p>
             {kycFieldErrors.document_number && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.document_number}</p>}
           </div>
 

@@ -59,7 +59,7 @@ function compact(value) {
   return String(value || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 }
 
-/** OCR hay nhầm một số ký tự; quy đổi khi đối chiếu số giấy tờ dạng số. */
+/** OCR hay nhầm một số ký tự; quy đổi khi đọc ngày sinh dạng số. */
 function ocrDigits(value) {
   return compact(value).replace(/[OQDG]/g, '0').replace(/[IL]/g, '1').replace(/S/g, '5').replace(/B/g, '8').replace(/Z/g, '2');
 }
@@ -98,7 +98,7 @@ function detectDocumentType(text) {
 /**
  * Chỉ coi là sai loại giấy tờ khi OCR đọc rõ ràng một loại khác.
  * Nhiều ảnh CCCD thật bị lóa/nghiêng nên không đọc được dòng tiêu đề;
- * khi đó các bước đối chiếu số giấy tờ, họ tên, ngày sinh bên dưới mới quyết định.
+ * khi đó các bước đối chiếu họ tên, ngày sinh bên dưới mới quyết định.
  */
 function isWrongDocumentType(detected, documentType) {
   return detected.length > 0 && !detected.includes(documentType);
@@ -120,15 +120,6 @@ function assertDocumentContent(text, data) {
       `Ảnh tải lên là ${other}, không phải ${meta.label}. Vui lòng chọn đúng loại giấy tờ.`,
       { code: 'KYC_DOCUMENT_TYPE_MISMATCH', detected },
     );
-  }
-
-  const number = compact(data.document_number);
-  const haystack = data.document_type === 'cccd' ? ocrDigits(text) : compact(text);
-  if (!haystack.includes(number)) {
-    throw new ApiError(422, `Không đối chiếu được số giấy tờ trên ảnh với số bạn nhập (${data.document_number}). Vui lòng kiểm tra lại.`, {
-      code: 'KYC_DOCUMENT_NUMBER_MISMATCH',
-      field: 'document_number',
-    });
   }
 
   if (!nameMatches(text, data.full_name)) {
