@@ -18,7 +18,16 @@ export const KYC_DOCUMENT_TYPES = {
   cccd: {
     label: 'Căn cước công dân',
     short: 'CCCD',
-    keywords: ['CAN CUOC CONG DAN', 'CAN CUOC', 'CITIZEN IDENTITY CARD', 'IDENTITY CARD', 'CCCD'],
+    keywords: [
+      'CAN CUOC CONG DAN',
+      'CAN CUOC',
+      'CONG DAN',
+      'SO DINH DANH CA NHAN',
+      'SO DINH DANH',
+      'CITIZEN IDENTITY CARD',
+      'IDENTITY CARD',
+      'CCCD',
+    ],
     numberPattern: /^\d{12}$/,
     numberHint: 'Số CCCD phải gồm đúng 12 chữ số.',
     backRequired: true,
@@ -99,6 +108,15 @@ function detectDocumentType(text) {
   return found;
 }
 
+/**
+ * Chỉ coi là sai loại giấy tờ khi OCR đọc rõ ràng một loại khác.
+ * Nhiều ảnh CCCD thật bị lóa/nghiêng nên không đọc được dòng tiêu đề;
+ * khi đó các bước đối chiếu số giấy tờ, họ tên, ngày sinh bên dưới mới quyết định.
+ */
+function isWrongDocumentType(detected, documentType) {
+  return detected.length > 0 && !detected.includes(documentType);
+}
+
 function assertDocumentContent(text, data) {
   if (!text || normalizeOcrText(text).length < 12) {
     throw new ApiError(422, 'Không đọc được thông tin trên ảnh giấy tờ. Vui lòng chụp lại ảnh rõ nét, đủ sáng và không bị che khuất.', {
@@ -108,13 +126,11 @@ function assertDocumentContent(text, data) {
 
   const detected = detectDocumentType(text);
   const meta = KYC_DOCUMENT_TYPES[data.document_type];
-  if (!detected.includes(data.document_type)) {
+  if (isWrongDocumentType(detected, data.document_type)) {
     const other = detected.map((type) => KYC_DOCUMENT_TYPES[type].label).join(', ');
     throw new ApiError(
       422,
-      other
-        ? `Ảnh tải lên là ${other}, không phải ${meta.label}. Vui lòng chọn đúng loại giấy tờ.`
-        : `Ảnh tải lên không phải ${meta.label} hợp lệ. Chỉ chấp nhận ảnh CCCD hoặc hộ chiếu rõ nét.`,
+      `Ảnh tải lên là ${other}, không phải ${meta.label}. Vui lòng chọn đúng loại giấy tờ.`,
       { code: 'KYC_DOCUMENT_TYPE_MISMATCH', detected },
     );
   }
@@ -616,13 +632,11 @@ export async function scanKycDocument(input) {
   }
 
   const detected = detectDocumentType(text);
-  if (!detected.includes(documentType)) {
+  if (isWrongDocumentType(detected, documentType)) {
     const other = detected.map((type) => KYC_DOCUMENT_TYPES[type].label).join(', ');
     throw new ApiError(
       422,
-      other
-        ? `Ảnh có vẻ là ${other}, không phải ${meta.label}. Vui lòng chọn đúng loại giấy tờ hoặc tải ảnh khác.`
-        : `Chưa nhận diện được ${meta.label} trên ảnh. Bạn vẫn có thể nhập tay hoặc chụp lại rõ nét hơn.`,
+      `Ảnh có vẻ là ${other}, không phải ${meta.label}. Vui lòng chọn đúng loại giấy tờ hoặc tải ảnh khác.`,
       { code: 'KYC_DOCUMENT_TYPE_MISMATCH', detected },
     );
   }
