@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
@@ -25,13 +25,23 @@ import { isValidVietnamesePhone, PHONE_HINT } from '../lib/phone';
 import { readDocumentImage } from '../lib/images';
 import {
   KYC_DOCUMENT_TYPES,
+  KYC_SCAN_FIELD_LABELS,
+  KYC_SCAN_FIELDS,
   kycErrorMessage,
   maxBirthDate,
   minBirthDate,
+  preferScannedName,
   validateKycDraft,
 } from '../lib/kyc';
 
 const EMPTY_PROJECTS = { owned: [], collaborating: [], invitations: [] };
+
+const KYC_NOTE_CLASS = {
+  info: 'border-sky-200 bg-sky-50 text-sky-800',
+  success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  warn: 'border-amber-200 bg-amber-50 text-amber-800',
+  error: 'border-red-200 bg-red-50 text-red-700',
+};
 
 function emptyKycForm(user) {
   return {
@@ -53,20 +63,20 @@ function DocumentUpload({ label, hint, value, busy, onChange, onClear }) {
       <div className="text-xs font-semibold">{label}</div>
       <label className="mt-1 block cursor-pointer overflow-hidden rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-center transition hover:border-emerald-400">
         {value ? (
-          <img src={value} alt={label} className="h-32 w-full object-cover" />
+          <img src={value} alt={label} className="h-40 w-full bg-slate-100 object-contain" />
         ) : (
-          <div className="flex h-32 flex-col items-center justify-center gap-1 p-3 text-xs text-slate-500">
+          <div className="flex h-40 flex-col items-center justify-center gap-1 p-3 text-xs text-slate-500">
             <span className="text-2xl">📷</span>
-            <span className="font-semibold text-emerald-700">Chọn ảnh chụp ngang</span>
+            <span className="font-semibold text-emerald-700">Chọn ảnh giấy tờ</span>
             <span>{hint}</span>
           </div>
         )}
-        <input type="file" accept="image/jpeg,image/png" className="hidden" onChange={onChange} disabled={busy} />
+        <input type="file" accept="image/*" className="hidden" onChange={onChange} disabled={busy} />
       </label>
-      <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-        <span>{busy ? <><Spinner className="mr-1 h-3 w-3" /> Đang xử lý ảnh…</> : 'JPEG/PNG · thấy rõ số giấy tờ và họ tên'}</span>
+      <div className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-500">
+        <span>{busy ? <><Spinner className="mr-1 h-3 w-3" /> Đang xử lý ảnh…</> : 'JPG/PNG/HEIC/WEBP · ảnh dọc hoặc ngang đều được'}</span>
         {value && !busy && (
-          <button type="button" className="text-red-500 hover:underline" onClick={onClear}>
+          <button type="button" className="shrink-0 text-red-500 hover:underline" onClick={onClear}>
             Xóa ảnh
           </button>
         )}
@@ -113,6 +123,10 @@ export default function Profile() {
   const [kycFieldErrors, setKycFieldErrors] = useState({});
   const [kycBusy, setKycBusy] = useState(false);
   const [kycImageBusy, setKycImageBusy] = useState('');
+  const [kycScanBusy, setKycScanBusy] = useState(false);
+  const [kycScanNote, setKycScanNote] = useState(null);
+  const kycScanSeq = useRef(0);
+  const kycImageSeq = useRef({ front: 0, back: 0 });
   const [kycMsg, setKycMsg] = useState('');
   const [kycDevUrl, setKycDevUrl] = useState('');
   const [kycResendBusy, setKycResendBusy] = useState(false);
@@ -231,26 +245,113 @@ export default function Profile() {
     });
     setKycError('');
     setKycFieldErrors({});
+    setKycScanNote(null);
+    setKycScanBusy(false);
+    kycScanSeq.current += 1;
+    kycImageSeq.current.front += 1;
+    kycImageSeq.current.back += 1;
     setKycOpen(true);
+  };
+
+  const applyScannedFields = (fields) => {
+    if (!fields) return [];
+    const filled = KYC_SCAN_FIELDS.filter((key) => fields[key]);
+    if (!filled.length) return [];
+
+    setKycForm((value) => {
+      const next = { ...value };
+      for (const key of filled) {
+        next[key] = key === 'full_name' ? preferScannedName(value.full_name, fields[key]) : fields[key];
+      }
+      return next;
+    });
+    setKycFieldErrors((errors) => {
+      const next = { ...errors };
+      for (const key of filled) next[key] = '';
+      return next;
+    });
+    return filled;
   };
 
   const pickKycImage = (side) => async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+
+    const imageSeq = kycImageSeq.current[side] + 1;
+    kycImageSeq.current[side] = imageSeq;
+    const scanSeq = side === 'front' ? kycScanSeq.current + 1 : kycScanSeq.current;
+    if (side === 'front') kycScanSeq.current = scanSeq;
+
     setKycImageBusy(side);
     setKycError('');
+    setKycScanNote(null);
+
+    let dataUrl;
     try {
       const label = side === 'front' ? 'Ảnh mặt trước' : 'Ảnh mặt sau';
-      const dataUrl = await readDocumentImage(file, label);
-      const field = side === 'front' ? 'front_image' : 'back_image';
-      setKycForm((value) => ({ ...value, [field]: dataUrl }));
-      setKycFieldErrors((errors) => ({ ...errors, [field]: '' }));
+      dataUrl = await readDocumentImage(file, label);
     } catch (err) {
-      setKycError(err.message);
-    } finally {
-      setKycImageBusy('');
+      if (imageSeq === kycImageSeq.current[side]) {
+        setKycError(err.message);
+        setKycImageBusy((current) => (current === side ? '' : current));
+      }
+      return;
     }
+    if (imageSeq !== kycImageSeq.current[side]) return;
+
+    setKycImageBusy((current) => (current === side ? '' : current));
+    const field = side === 'front' ? 'front_image' : 'back_image';
+    setKycForm((value) => ({ ...value, [field]: dataUrl }));
+    setKycFieldErrors((errors) => ({ ...errors, [field]: '' }));
+
+    if (side !== 'front' || scanSeq !== kycScanSeq.current) return;
+
+    setKycScanBusy(true);
+    setKycScanNote({ tone: 'info', text: 'Đang đọc thông tin trên ảnh…' });
+    try {
+      const scan = await api.post('/me/kyc/scan', {
+        document_type: kycForm.document_type,
+        image: dataUrl,
+      });
+      if (scanSeq !== kycScanSeq.current) return;
+
+      const filled = applyScannedFields(scan?.fields || {});
+      if (filled.length) {
+        const labels = filled.map((key) => KYC_SCAN_FIELD_LABELS[key]).filter(Boolean);
+        const missing = (scan?.missing || []).map((key) => KYC_SCAN_FIELD_LABELS[key]).filter(Boolean);
+        setKycScanNote({
+          tone: 'success',
+          text: `Đã tự điền ${labels.join(', ')} từ ảnh. Vui lòng kiểm tra lại.${missing.length ? ` Chưa đọc được: ${missing.join(', ')}.` : ''}`,
+        });
+      } else {
+        setKycScanNote({
+          tone: 'warn',
+          text: scan?.message || 'Ảnh đã được tải lên nhưng chưa đọc được thông tin. Vui lòng nhập tay hoặc chọn ảnh rõ hơn.',
+        });
+      }
+    } catch (err) {
+      if (scanSeq !== kycScanSeq.current) return;
+      setKycScanNote({
+        tone: 'warn',
+        text: `${err.message} Ảnh vẫn được giữ — bạn có thể nhập tay hoặc chọn ảnh khác.`,
+      });
+    } finally {
+      if (scanSeq === kycScanSeq.current) setKycScanBusy(false);
+    }
+  };
+
+  const clearKycImage = (side) => {
+    kycImageSeq.current[side] += 1;
+    setKycImageBusy((current) => (current === side ? '' : current));
+    if (side === 'front') {
+      kycScanSeq.current += 1;
+      setKycScanBusy(false);
+      setKycScanNote(null);
+    }
+    const field = side === 'front' ? 'front_image' : 'back_image';
+    setKycForm((value) => ({ ...value, [field]: '' }));
+    setKycFieldErrors((errors) => ({ ...errors, [field]: '' }));
   };
 
   const submitKyc = async (e) => {
@@ -674,17 +775,25 @@ export default function Profile() {
               className="btn-primary text-sm disabled:opacity-60"
               type="submit"
               form="kyc-form"
-              disabled={kycBusy || !!kycImageBusy}
+              disabled={kycBusy || !!kycImageBusy || kycScanBusy}
             >
-              {kycBusy ? <><Spinner className="mr-1 h-3 w-3" /> Đang đối chiếu OCR…</> : 'Gửi hồ sơ xác thực'}
+              {kycBusy ? (
+                <><Spinner className="mr-1 h-3 w-3" /> Đang đối chiếu OCR…</>
+              ) : kycScanBusy ? (
+                <><Spinner className="mr-1 h-3 w-3" /> Đang đọc thông tin trên ảnh…</>
+              ) : (
+                'Gửi hồ sơ xác thực'
+              )}
             </button>
           </>
         }
       >
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-          Hệ thống đối chiếu tự động thông tin bạn nhập với ảnh CCCD/hộ chiếu bằng OCR, kiểm tra số giấy tờ trùng lặp,
+          Hệ thống tự động đọc thông tin trên ảnh CCCD/hộ chiếu để điền vào biểu mẫu, kiểm tra số giấy tờ trùng lặp,
           sau đó gửi liên kết xác thực tới email liên hệ để hoàn tất KYC.
         </div>
+
+        {kycError && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{kycError}</div>}
 
         <form id="kyc-form" className="space-y-3" onSubmit={submitKyc} noValidate>
           <div>
@@ -700,6 +809,9 @@ export default function Profile() {
                       : 'border-slate-300 bg-white hover:border-emerald-300'
                   }`}
                   onClick={() => {
+                    kycScanSeq.current += 1;
+                    setKycScanBusy(false);
+                    setKycScanNote(null);
                     setKycForm((value) => ({ ...value, document_type: key }));
                     setKycFieldErrors((errors) => ({ ...errors, document_number: '', back_image: '' }));
                   }}
@@ -801,11 +913,11 @@ export default function Profile() {
             <div>
               <DocumentUpload
                 label={`Ảnh mặt trước ${documentType.short}`}
-                hint="Chụp ngang, đủ sáng, thấy rõ số và họ tên"
+                hint="Ảnh dọc hoặc ngang, đủ sáng, thấy rõ số và họ tên"
                 value={kycForm.front_image}
                 busy={kycImageBusy === 'front'}
                 onChange={pickKycImage('front')}
-                onClear={() => setKycForm((value) => ({ ...value, front_image: '' }))}
+                onClear={() => clearKycImage('front')}
               />
               {kycFieldErrors.front_image && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.front_image}</p>}
             </div>
@@ -816,13 +928,18 @@ export default function Profile() {
                 value={kycForm.back_image}
                 busy={kycImageBusy === 'back'}
                 onChange={pickKycImage('back')}
-                onClear={() => setKycForm((value) => ({ ...value, back_image: '' }))}
+                onClear={() => clearKycImage('back')}
               />
               {kycFieldErrors.back_image && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.back_image}</p>}
             </div>
           </div>
 
-          {kycError && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{kycError}</div>}
+          {kycScanNote && (
+            <div className={`rounded-xl border p-3 text-xs ${KYC_NOTE_CLASS[kycScanNote.tone] || KYC_NOTE_CLASS.info}`}>
+              {kycScanNote.tone === 'info' && <Spinner className="mr-1 inline h-3 w-3" />}
+              {kycScanNote.text}
+            </div>
+          )}
         </form>
       </Modal>
 

@@ -9,7 +9,7 @@ import { rateLimit } from '../middleware/rate-limit.js';
 import { canonicalVietnamesePhone } from '../lib/phone.js';
 import { notify } from '../services/notifications.js';
 import { refreshRecommendations } from '../services/ai.js';
-import { resendKycEmail, submitKyc } from '../services/kyc.js';
+import { resendKycEmail, scanKycDocument, submitKyc } from '../services/kyc.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -30,6 +30,11 @@ const kycSchema = z.object({
   document_number: z.string().trim().min(5, 'Số giấy tờ tối thiểu 5 ký tự.').max(30),
   front_image: z.string().min(50, 'Vui lòng tải ảnh mặt trước giấy tờ.'),
   back_image: z.string().min(50).nullable().optional(),
+});
+
+const kycScanSchema = z.object({
+  document_type: z.enum(['cccd', 'passport'], { message: 'Chỉ chấp nhận CCCD hoặc hộ chiếu.' }),
+  image: z.string().min(50, 'Vui lòng chọn ảnh giấy tờ.'),
 });
 
 const interestsSchema = z.object({
@@ -95,6 +100,17 @@ router.patch(
       [body.full_name ?? null, body.phone ?? null, body.avatar_url ?? null, req.user.id],
     );
     res.json({ user: mapUser(rows[0]) });
+  }),
+);
+
+// POST /api/me/kyc/scan — đọc ảnh trước để tự điền biểu mẫu, không lưu hồ sơ
+router.post(
+  '/kyc/scan',
+  rateLimit({ name: 'kyc-scan-user', max: 30, key: (req) => req.user?.id }),
+  asyncHandler(async (req, res) => {
+    const body = parse(kycScanSchema, req.body);
+    const result = await scanKycDocument(body);
+    res.json(result);
   }),
 );
 

@@ -383,6 +383,17 @@ async function main() {
   const missingKyc = await request('POST', '/me/kyc', { token: newToken, body: {} });
   check('KYC thiếu hồ sơ bị từ chối', missingKyc.status === 400, JSON.stringify(missingKyc.data));
 
+  const scanMissing = await request('POST', '/me/kyc/scan', { token: newToken, body: {} });
+  check('KYC scan thiếu ảnh bị từ chối', scanMissing.status === 400, JSON.stringify(scanMissing.data));
+
+  const tinyPng =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
+  const scanTiny = await request('POST', '/me/kyc/scan', {
+    token: newToken,
+    body: { document_type: 'cccd', image: tinyPng },
+  });
+  check('KYC scan ảnh quá nhỏ bị từ chối', scanTiny.status === 400, JSON.stringify(scanTiny.data));
+
   if (db && registeredUserId) {
     // Tạo hồ sơ KYC đang chờ + token xác thực, sau đó chạy đúng endpoint xác thực email KYC.
     const kycToken = `smoke-kyc-${Date.now()}`;

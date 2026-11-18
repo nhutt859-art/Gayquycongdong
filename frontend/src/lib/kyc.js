@@ -35,6 +35,35 @@ export function minBirthDate() {
   return date.toISOString().slice(0, 10);
 }
 
+export const KYC_SCAN_FIELDS = ['full_name', 'dob', 'document_number', 'address'];
+
+export const KYC_SCAN_FIELD_LABELS = {
+  full_name: 'họ tên',
+  dob: 'ngày sinh',
+  document_number: 'số giấy tờ',
+  address: 'địa chỉ',
+};
+
+function normalizedName(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * OCR thường trả tên không dấu. Nếu tên đã nhập chỉ khác dấu, giữ nguyên bản có dấu.
+ */
+export function preferScannedName(current, scanned) {
+  if (!current) return scanned;
+  if (!scanned) return current;
+  return normalizedName(current) === normalizedName(scanned) ? current : scanned;
+}
+
 export function validateKycDraft(form) {
   const errors = {};
   const meta = KYC_DOCUMENT_TYPES[form.document_type] || KYC_DOCUMENT_TYPES.cccd;
@@ -80,7 +109,7 @@ export function kycErrorMessage(err) {
     return `${err.message} Nếu giấy tờ đã từng được xác thực, hãy liên hệ quản trị viên để được hỗ trợ.`;
   }
   if (code === 'KYC_OCR_FAILED' || code === 'KYC_OCR_UNREADABLE' || code === 'KYC_OCR_TIMEOUT') {
-    return `${err.message} Ảnh cần chụp ngang, đủ sáng, không lóa và thấy rõ số giấy tờ cùng họ tên.`;
+    return `${err.message} Ảnh cần rõ nét, đủ sáng, không lóa và thấy rõ số giấy tờ cùng họ tên.`;
   }
   return err?.message || 'Không gửi được hồ sơ KYC.';
 }

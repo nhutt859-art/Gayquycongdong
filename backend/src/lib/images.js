@@ -77,27 +77,38 @@ export function imageDimensions(image) {
 }
 
 /**
- * Kiểm tra ảnh giấy tờ: đúng JPEG/PNG, đủ lớn, tỷ lệ khung ngang hợp lý.
- * Ảnh chụp màn hình dọc hoặc ảnh phong cảnh sẽ bị từ chối trước khi OCR.
+ * Kiểm tra ảnh giấy tờ: đúng JPEG/PNG và đủ độ phân giải để OCR.
+ * Chấp nhận cả ảnh dọc lẫn ảnh ngang vì người dùng thường chụp bằng điện thoại.
+ * Chỉ kiểm tra tỷ lệ khung khi nơi gọi truyền tường minh `options.aspect`.
  */
 export function validateDocumentImage(value, label, options = {}) {
   const image = parseImageDataUrl(value, label, options);
   const size = imageDimensions(image);
   if (!size) throw new ApiError(400, `Không đọc được kích thước ${label.toLowerCase()}. Vui lòng chọn ảnh khác.`);
 
-  const minWidth = options.minWidth ?? 400;
+  const minWidth = options.minWidth ?? 240;
   const minHeight = options.minHeight ?? 240;
-  if (size.width < minWidth || size.height < minHeight) {
-    throw new ApiError(400, `${label} quá nhỏ (${size.width}×${size.height}px). Vui lòng chụp ảnh rõ hơn, tối thiểu ${minWidth}×${minHeight}px.`);
-  }
-
-  const ratio = size.width / size.height;
-  const [minRatio, maxRatio] = options.aspect ?? [1.15, 2.6];
-  if (ratio < minRatio || ratio > maxRatio) {
+  const minPixels = options.minPixels ?? 240_000;
+  if (
+    size.width < minWidth ||
+    size.height < minHeight ||
+    size.width * size.height < minPixels
+  ) {
     throw new ApiError(
       400,
-      `${label} phải là ảnh chụp ngang của giấy tờ (tỷ lệ khung ${minRatio}–${maxRatio}). Ảnh dọc hoặc ảnh không đúng loại sẽ bị từ chối.`,
+      `${label} quá nhỏ (${size.width}×${size.height}px). Vui lòng chọn ảnh rõ hơn, tối thiểu 600×400px (hoặc 400×600px với ảnh dọc).`,
     );
+  }
+
+  if (options.aspect) {
+    const [minRatio, maxRatio] = options.aspect;
+    const ratio = size.width / size.height;
+    if (ratio < minRatio || ratio > maxRatio) {
+      throw new ApiError(
+        400,
+        `${label} có tỷ lệ khung chưa phù hợp (${minRatio}–${maxRatio}). Vui lòng chụp lại giấy tờ trong khung hình.`,
+      );
+    }
   }
 
   return { ...image, ...size };

@@ -144,11 +144,313 @@ function assertDocumentContent(text, data) {
 }
 
 // ------------------------------------------------------------
+// Trích xuất thông tin từ văn bản OCR (dùng cho tự điền biểu mẫu).
+// ------------------------------------------------------------
+const NAME_LABELS = ['HO VA TEN', 'HO TEN', 'FULL NAME', 'FULLNAME', 'NAME', 'TEN'];
+const DOB_LABELS = ['NGAY SINH', 'SINH NGAY', 'DATE OF BIRTH', 'BIRTH DATE', 'DOB', 'BIRTH'];
+const ADDRESS_LABELS = [
+  'NOI THUONG TRU',
+  'NOI DANG KY THUONG TRU',
+  'NOI DKHKTT',
+  'THUONG TRU',
+  'DKHKTT',
+  'ADDRESS',
+  'RESIDENCE',
+  'NOI O',
+];
+const NUMBER_LABELS = [
+  'SO DINH DANH CA NHAN',
+  'SO DINH DANH',
+  'SO CCCD',
+  'SO HO CHIEU',
+  'SO PASSPORT',
+  'PASSPORT NUMBER',
+  'PASSPORT NO',
+  'DOCUMENT NO',
+  'DOCUMENT NUMBER',
+  'ID NO',
+  'SO',
+  'S0',
+];
+const STOP_LABELS = [
+  'HO VA TEN',
+  'HO TEN',
+  'FULL NAME',
+  'FULLNAME',
+  'NGAY SINH',
+  'SINH NGAY',
+  'DATE OF BIRTH',
+  'BIRTH DATE',
+  'NOI THUONG TRU',
+  'NOI DANG KY THUONG TRU',
+  'NOI DKHKTT',
+  'THUONG TRU',
+  'DKHKTT',
+  'SO DINH DANH CA NHAN',
+  'SO DINH DANH',
+  'SO CCCD',
+  'SO HO CHIEU',
+  'SO PASSPORT',
+  'PASSPORT NUMBER',
+  'PASSPORT NO',
+  'DOCUMENT NO',
+  'DOCUMENT NUMBER',
+  'ID NO',
+];
+const DATE_IN_TEXT_RE = /\b\d{1,2}[/.-]\d{1,2}[/.-]\d{4}\b|\b\d{4}[/.-]\d{1,2}[/.-]\d{1,2}\b/;
+const STOP_LINE_RE =
+  /^(CO GIA TRI DEN|NGAY CAP|NGAY HET HAN|PASSPORT|MRZ|CHU KY|SIGNATURE|CAN CUOC|CONG HOA|DOC LAP|VIET NAM|QUOC TICH|GIOI TINH|NOI SINH|QUE QUAN)/;
+
+function rawLines(text) {
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function valueAfterColon(rawLine) {
+  const match = String(rawLine || '').match(/[:：]\s*(.+)$/);
+  return match ? match[1].trim() : '';
+}
+
+/** Bỏ đúng các từ của nhãn ở đầu dòng, giữ nguyên dấu tiếng Việt của phần giá trị. */
+function stripLabelTokens(rawLine, label) {
+  const tokens = String(rawLine || '').split(' ').filter(Boolean);
+  const wanted = label.split(' ');
+  if (tokens.length <= wanted.length) return '';
+  const prefix = tokens
+    .slice(0, wanted.length)
+    .map((token) => normalizeOcrText(token))
+    .join(' ');
+  if (prefix !== label) return '';
+  return tokens
+    .slice(wanted.length)
+    .join(' ')
+    .replace(/^[:：\s/.-]+/, '')
+    .trim();
+}
+
+function matchesLabel(haystack, label) {
+  return haystack === label || haystack.startsWith(`${label} `);
+}
+
+function findLabelLine(lines, labels) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const haystack = normalizeOcrText(lines[index]);
+    for (const label of labels) {
+      if (matchesLabel(haystack, label)) return { index, label };
+    }
+  }
+  return null;
+}
+
+function looksLikeStopLine(line, { allowDate = false } = {}) {
+  const haystack = normalizeOcrText(line);
+  if (!haystack || haystack.includes('<<')) return true;
+  if (!allowDate && DATE_IN_TEXT_RE.test(haystack)) return true;
+  if (STOP_LINE_RE.test(haystack)) return true;
+  if (STOP_LABELS.some((label) => matchesLabel(haystack, label))) return true;
+  // Nhãn ngắn như "Số:", "Name:" chỉ dừng khi thật sự có dấu hai chấm.
+  return /^\s*(Số|So|S0|No|N0|Name|DOB|Address|Residence)\s*[:：]/i.test(String(line || ''));
+}
+
+function collectFollowLines(lines, index, maxLines, options = {}) {
+  const parts = [];
+  for (let next = index + 1; next < lines.length && parts.length < maxLines; next += 1) {
+    if (looksLikeStopLine(lines[next], options)) break;
+    parts.push(lines[next]);
+  }
+  return parts;
+}
+
+function extractLabeledValue(lines, index, label, maxFollow = 1, options = {}) {
+  const inline = valueAfterColon(lines[index]) || stripLabelTokens(lines[index], label);
+  const parts = inline ? [inline] : [];
+  if (maxFollow > 0 && parts.length < maxFollow + 1) {
+    parts.push(...collectFollowLines(lines, index, maxFollow, options));
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function titleCaseName(value) {
+  return String(value || '')
+    .toLocaleLowerCase('vi-VN')
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => (word ? word[0].toLocaleUpperCase('vi-VN') + word.slice(1) : word))
+    .join(' ');
+}
+
+function cleanPersonName(value) {
+  const text = String(value || '')
+    .replace(/[0-9]/g, ' ')
+    .replace(/[^A-Za-zÀ-ỹ\s'.-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return null;
+  const normalized = normalizeOcrText(text);
+  if (normalized.length < 2 || normalized.length > 120) return null;
+  if (/^(CAN CUOC|CONG DAN|PASSPORT|VIET NAM|CONG HOA|DOC LAP|SO THONG HANH)/.test(normalized)) return null;
+  const words = text.split(' ').filter(Boolean);
+  if (words.length > 12) return null;
+  return titleCaseName(text);
+}
+
+function cleanAddress(value) {
+  const text = String(value || '')
+    .replace(/[|]/g, ' ')
+    .replace(/[^0-9A-Za-zÀ-ỹ\s,./-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .trim();
+  if (text.length < 5 || text.length > 300) return null;
+  return text;
+}
+
+function dateFromParts(day, month, year) {
+  const d = Number(day);
+  const m = Number(month);
+  const y = Number(year);
+  const currentYear = new Date().getUTCFullYear();
+  if (!Number.isInteger(d) || !Number.isInteger(m) || !Number.isInteger(y)) return null;
+  if (y < 1900 || y > currentYear || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+
+function datesInLine(line) {
+  const normalized = normalizeOcrText(line);
+  const dates = [];
+  for (const match of normalized.matchAll(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/g)) {
+    const date = dateFromParts(match[1], match[2], match[3]);
+    if (date) dates.push(date);
+  }
+  for (const match of normalized.matchAll(/(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})/g)) {
+    const date = dateFromParts(match[3], match[2], match[1]);
+    if (date) dates.push(date);
+  }
+  return dates;
+}
+
+function isPlausibleBirthDate(value) {
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return false;
+  const age = (Date.now() - date.getTime()) / (365.25 * 24 * 3600 * 1000);
+  return age >= 14 && age <= 120;
+}
+
+function extractDob(lines) {
+  const dobLine = findLabelLine(lines, DOB_LABELS);
+  if (dobLine) {
+    const value = extractLabeledValue(lines, dobLine.index, dobLine.label, 1, { allowDate: true });
+    const found = datesInLine(value).find(isPlausibleBirthDate);
+    if (found) return found;
+  }
+
+  // Không thấy nhãn: chỉ tự điền khi ảnh có duy nhất một ngày sinh hợp lý.
+  const unique = [...new Set(lines.flatMap((line) => datesInLine(line)))].filter(isPlausibleBirthDate);
+  return unique.length === 1 ? unique[0] : null;
+}
+
+function extractFullName(lines) {
+  const nameLine = findLabelLine(lines, NAME_LABELS);
+  if (!nameLine) return null;
+  const inline = valueAfterColon(lines[nameLine.index]) || stripLabelTokens(lines[nameLine.index], nameLine.label);
+  if (inline) return cleanPersonName(inline);
+  const nextLine = collectFollowLines(lines, nameLine.index, 1).join(' ');
+  return cleanPersonName(nextLine);
+}
+
+function extractAddress(lines) {
+  const addressLine = findLabelLine(lines, ADDRESS_LABELS);
+  if (!addressLine) return null;
+  return cleanAddress(extractLabeledValue(lines, addressLine.index, addressLine.label, 2));
+}
+
+function extractDocumentNumber(text, documentType) {
+  const lines = rawLines(text);
+  const isNumberLabel = (line) => {
+    const haystack = normalizeOcrText(line);
+    return NUMBER_LABELS.some((label) => matchesLabel(haystack, label));
+  };
+  const labelLines = lines.filter(isNumberLabel);
+  const otherLines = lines.filter((line) => !isNumberLabel(line));
+
+  const readLine = (line) => {
+    const source = valueAfterColon(line) || line;
+    return source.replace(/^\s*(SO|S0|NO|N0|ID|CCCD|PASSPORT|DOCUMENT)\b[\s.:/-]*/i, '');
+  };
+
+  if (documentType === 'cccd') {
+    for (const line of [...labelLines, ...otherLines]) {
+      const mapped = ocrDigits(readLine(line));
+      const match = mapped.match(/\d{12}/);
+      if (match) return match[0];
+    }
+    return null;
+  }
+
+  // Hộ chiếu: ưu tiên dòng có nhãn, sau đó mới tới số bắt đầu bằng chữ trong MRZ.
+  for (const line of labelLines) {
+    const compacted = readLine(line).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const match = compacted.match(/([A-Z][0-9]{7,8}|[0-9]{8,9})/);
+    if (match) return match[1];
+  }
+  for (const line of otherLines) {
+    const compacted = String(line).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const match = compacted.match(/([A-Z][0-9]{7,8})/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+export const KYC_SCAN_FIELDS = ['full_name', 'dob', 'document_number', 'address'];
+
+/** Trích xuất các trường trên giấy tờ từ văn bản OCR. Hàm thuần, dễ kiểm thử. */
+export function extractKycFields(text, documentType) {
+  const lines = rawLines(text);
+  const fields = {
+    full_name: extractFullName(lines),
+    dob: extractDob(lines),
+    document_number: extractDocumentNumber(text, documentType),
+    address: extractAddress(lines),
+  };
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => Boolean(value)));
+}
+
+// ------------------------------------------------------------
 // OCR: một worker dùng chung, xếp hàng tuần tự để không ngốn RAM.
 // ------------------------------------------------------------
 let workerPromise = null;
 let queue = Promise.resolve();
 const cachePath = path.join(os.tmpdir(), 'gayquy-ocr');
+
+// Cache text OCR theo hash ảnh: quét ảnh và gửi hồ sơ không phải OCR hai lần.
+const OCR_CACHE_TTL_MS = 30 * 60 * 1000;
+const OCR_CACHE_MAX = 40;
+const ocrCache = new Map();
+
+function readOcrCache(hash) {
+  const entry = ocrCache.get(hash);
+  if (!entry) return null;
+  if (Date.now() - entry.at > OCR_CACHE_TTL_MS) {
+    ocrCache.delete(hash);
+    return null;
+  }
+  // Làm mới thứ tự LRU.
+  ocrCache.delete(hash);
+  ocrCache.set(hash, entry);
+  return entry.text;
+}
+
+function writeOcrCache(hash, text) {
+  if (ocrCache.size >= OCR_CACHE_MAX) {
+    const oldest = ocrCache.keys().next().value;
+    ocrCache.delete(oldest);
+  }
+  ocrCache.set(hash, { text, at: Date.now() });
+}
 
 async function getWorker() {
   if (!workerPromise) {
@@ -207,6 +509,14 @@ async function recognizeText(buffer) {
   });
   queue = run.catch(() => {});
   return run;
+}
+
+async function recognizeImage(image) {
+  const cached = readOcrCache(image.hash);
+  if (cached !== null) return cached;
+  const text = await recognizeText(image.buffer);
+  writeOcrCache(image.hash, text);
+  return text;
 }
 
 // ------------------------------------------------------------
@@ -284,6 +594,49 @@ async function loadKycUser(userId) {
     [userId],
   );
   return rows[0] || null;
+}
+
+/**
+ * Quét ảnh trước khi gửi hồ sơ để tự điền biểu mẫu.
+ * Ảnh đã hợp lệ sẽ được giữ nguyên ở client dù OCR không đọc được.
+ */
+export async function scanKycDocument(input) {
+  const documentType = String(input.document_type || '').toLowerCase();
+  const meta = KYC_DOCUMENT_TYPES[documentType];
+  if (!meta) throw new ApiError(400, 'Loại giấy tờ không hợp lệ. Chỉ chấp nhận CCCD hoặc hộ chiếu.');
+
+  const image = validateDocumentImage(input.image, 'Ảnh giấy tờ');
+  const text = await recognizeImage(image);
+  if (!text || normalizeOcrText(text).length < 12) {
+    throw new ApiError(
+      422,
+      'Không đọc được thông tin trên ảnh. Ảnh vẫn được giữ — bạn có thể nhập tay hoặc chụp lại rõ nét hơn.',
+      { code: 'KYC_OCR_UNREADABLE' },
+    );
+  }
+
+  const detected = detectDocumentType(text);
+  if (!detected.includes(documentType)) {
+    const other = detected.map((type) => KYC_DOCUMENT_TYPES[type].label).join(', ');
+    throw new ApiError(
+      422,
+      other
+        ? `Ảnh có vẻ là ${other}, không phải ${meta.label}. Vui lòng chọn đúng loại giấy tờ hoặc tải ảnh khác.`
+        : `Chưa nhận diện được ${meta.label} trên ảnh. Bạn vẫn có thể nhập tay hoặc chụp lại rõ nét hơn.`,
+      { code: 'KYC_DOCUMENT_TYPE_MISMATCH', detected },
+    );
+  }
+
+  const fields = extractKycFields(text, documentType);
+  const missing = KYC_SCAN_FIELDS.filter((field) => !fields[field]);
+  return {
+    document_type: documentType,
+    fields,
+    missing,
+    message: Object.keys(fields).length
+      ? 'Đã đọc thông tin trên ảnh. Vui lòng kiểm tra lại trước khi gửi hồ sơ.'
+      : 'Ảnh đã được tải lên nhưng chưa đọc được thông tin. Vui lòng nhập tay hoặc chụp ảnh rõ hơn.',
+  };
 }
 
 export async function submitKyc(userId, input) {
@@ -365,7 +718,7 @@ export async function submitKyc(userId, input) {
     throw new ApiError(400, 'Vui lòng tải ảnh mặt sau của CCCD.');
   }
 
-  const ocrText = await recognizeText(front.buffer);
+  const ocrText = await recognizeImage(front);
   assertDocumentContent(ocrText, {
     document_type: documentType,
     document_number: documentNumber,

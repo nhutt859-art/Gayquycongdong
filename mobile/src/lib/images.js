@@ -82,7 +82,7 @@ function askImageSource(title, onCamera, onLibrary, onCancel) {
 }
 
 /**
- * Ảnh giấy tờ KYC: ưu tiên chụp ngang, đủ lớn và đúng tỷ lệ như backend kiểm tra.
+ * Ảnh giấy tờ KYC: chấp nhận ảnh dọc lẫn ảnh ngang, chỉ cần đủ độ phân giải để OCR.
  * Trả về data URL JPEG hoặc null nếu người dùng hủy.
  */
 export function pickDocumentImage(label) {
@@ -102,17 +102,13 @@ export function pickDocumentImage(label) {
         const asset = assets[0];
         const image = await toJpegWithinBytes(asset, {
           maxBytes: MAX_DOCUMENT_BYTES,
-          maxWidth: 1800,
-          maxHeight: 1400,
+          maxWidth: 2000,
+          maxHeight: 2000,
         });
-        if (image.width < 400 || image.height < 240) {
+        if (image.width < 240 || image.height < 240 || image.width * image.height < 240_000) {
           throw new Error(
-            `${label} quá nhỏ (${image.width}×${image.height}px). Vui lòng chụp rõ hơn, tối thiểu 400×240px.`,
+            `${label} quá nhỏ (${image.width}×${image.height}px). Vui lòng chọn ảnh rõ hơn, tối thiểu 600×400px (hoặc 400×600px với ảnh dọc).`,
           );
-        }
-        const ratio = image.width / image.height;
-        if (ratio < 1.15 || ratio > 2.6) {
-          throw new Error(`${label} phải là ảnh chụp ngang của giấy tờ. Vui lòng xoay ngang và chụp lại.`);
         }
         resolve(image.dataUrl);
       } catch (err) {

@@ -1,10 +1,22 @@
-const IMAGE_TYPES = ['image/jpeg', 'image/png'];
+const IMAGE_EXT_RE = /\.(jpe?g|png|webp|heic|heif|bmp|gif|avif|tiff?)$/i;
+
+function isImageFile(file) {
+  const type = String(file?.type || '').toLowerCase();
+  if (!type || type === 'application/octet-stream') return true;
+  if (type.startsWith('image/')) return true;
+  return IMAGE_EXT_RE.test(String(file?.name || ''));
+}
 
 function loadImage(dataUrl) {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('Không đọc được ảnh. Vui lòng chọn ảnh JPEG hoặc PNG khác.'));
+    image.onerror = () =>
+      reject(
+        new Error(
+          'Không đọc được ảnh này. Nếu ảnh là HEIC hoặc định dạng đặc biệt, hãy chuyển sang JPG/PNG rồi chọn lại.',
+        ),
+      );
     image.src = dataUrl;
   });
 }
@@ -30,7 +42,7 @@ function dataUrlBytes(dataUrl) {
  */
 export async function readImageFile(file, { maxBytes = 2 * 1024 * 1024, maxWidth = 1600, maxHeight = 1600 } = {}) {
   if (!file) throw new Error('Vui lòng chọn ảnh.');
-  if (!IMAGE_TYPES.includes(file.type)) throw new Error('Chỉ chấp nhận ảnh JPEG hoặc PNG.');
+  if (!isImageFile(file)) throw new Error('Chỉ chấp nhận tệp ảnh (JPG, PNG, HEIC, WEBP…).');
 
   const original = await readAsDataUrl(file);
   const image = await loadImage(original);
@@ -64,16 +76,18 @@ export async function readImageFile(file, { maxBytes = 2 * 1024 * 1024, maxWidth
 }
 
 /**
- * Ảnh giấy tờ KYC: bắt buộc chụp ngang, đủ lớn và đúng tỷ lệ như backend kiểm tra.
+ * Ảnh giấy tờ KYC: chấp nhận ảnh dọc lẫn ảnh ngang, chỉ cần đủ độ phân giải để OCR.
  */
 export async function readDocumentImage(file, label) {
-  const result = await readImageFile(file, { maxBytes: 3.6 * 1024 * 1024, maxWidth: 1800, maxHeight: 1400 });
-  if (result.width < 400 || result.height < 240) {
-    throw new Error(`${label} quá nhỏ (${result.width}×${result.height}px). Vui lòng chụp rõ hơn, tối thiểu 400×240px.`);
-  }
-  const ratio = result.width / result.height;
-  if (ratio < 1.15 || ratio > 2.6) {
-    throw new Error(`${label} phải là ảnh chụp ngang của giấy tờ. Vui lòng xoay ảnh ngang và chụp lại.`);
+  const result = await readImageFile(file, {
+    maxBytes: 3.6 * 1024 * 1024,
+    maxWidth: 2000,
+    maxHeight: 2000,
+  });
+  if (result.width < 240 || result.height < 240 || result.width * result.height < 240_000) {
+    throw new Error(
+      `${label} quá nhỏ (${result.width}×${result.height}px). Vui lòng chọn ảnh rõ hơn, tối thiểu 600×400px (hoặc 400×600px với ảnh dọc).`,
+    );
   }
   return result.dataUrl;
 }

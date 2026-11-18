@@ -1,9 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Linking, Pressable, Text, View } from 'react-native';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { formatDate } from '../lib/format';
-import { KYC_DOCUMENT_TYPES, kycErrorMessage, validateKycDraft } from '../lib/kyc';
+import {
+  KYC_DOCUMENT_TYPES,
+  KYC_SCAN_FIELD_LABELS,
+  KYC_SCAN_FIELDS,
+  kycErrorMessage,
+  preferScannedName,
+  validateKycDraft,
+} from '../lib/kyc';
 import { pickDocumentImage } from '../lib/images';
 import { PHONE_HINT, isValidVietnamesePhone } from '../lib/phone';
 import { colors } from '../theme';
@@ -33,6 +40,10 @@ export default function KycScreen({ navigation }) {
   const [devUrl, setDevUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState('');
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanNote, setScanNote] = useState('');
+  const [scanTone, setScanTone] = useState('info');
+  const scanSeq = useRef(0);
   const [resendBusy, setResendBusy] = useState(false);
 
   useEffect(() => {
@@ -75,8 +86,33 @@ export default function KycScreen({ navigation }) {
   };
 
   const chooseDocumentType = (key) => {
+    if (key !== form.document_type) {
+      scanSeq.current += 1;
+      setScanBusy(false);
+      setScanNote('');
+    }
     setForm((value) => ({ ...value, document_type: key }));
     setFieldErrors((errors) => ({ ...errors, document_number: '', back_image: '' }));
+  };
+
+  const applyScannedFields = (fields) => {
+    if (!fields) return [];
+    const filled = KYC_SCAN_FIELDS.filter((key) => fields[key]);
+    if (!filled.length) return [];
+
+    setForm((value) => {
+      const next = { ...value };
+      for (const key of filled) {
+        next[key] = key === 'full_name' ? preferScannedName(value.full_name, fields[key]) : fields[key];
+      }
+      return next;
+    });
+    setFieldErrors((errors) => {
+      const next = { ...errors };
+      for (const key of filled) next[key] = '';
+      return next;
+    });
+    return filled;
   };
 
   const pickImage = async (side) => {
@@ -84,12 +120,60 @@ export default function KycScreen({ navigation }) {
     setImageBusy(side);
     try {
       const dataUrl = await pickDocumentImage(label);
-      if (dataUrl) setField(`${side}_image`, dataUrl);
+      if (!dataUrl) return;
+
+      const seq = side === 'front' ? scanSeq.current + 1 : scanSeq.current;
+      if (side === 'front') scanSeq.current = seq;
+      setField(`${side}_image`, dataUrl);
+
+      if (side !== 'front') return;
+
+      setScanBusy(true);
+      setScanTone('info');
+      setScanNote('Đang đọc thông tin trên ảnh…');
+      try {
+        const scan = await api.post('/me/kyc/scan', {
+          document_type: form.document_type,
+          image: dataUrl,
+        });
+        if (seq !== scanSeq.current) return;
+
+        const filled = applyScannedFields(scan?.fields || {});
+        if (filled.length) {
+          const labels = filled.map((key) => KYC_SCAN_FIELD_LABELS[key]).filter(Boolean);
+          const missing = (scan?.missing || []).map((key) => KYC_SCAN_FIELD_LABELS[key]).filter(Boolean);
+          setScanTone('success');
+          setScanNote(
+            `Đã tự điền ${labels.join(', ')} từ ảnh. Vui lòng kiểm tra lại.${missing.length ? ` Chưa đọc được: ${missing.join(', ')}.` : ''}`,
+          );
+        } else {
+          setScanTone('warn');
+          setScanNote(
+            scan?.message ||
+              'Ảnh đã được tải lên nhưng chưa đọc được thông tin. Vui lòng nhập tay hoặc chọn ảnh rõ hơn.',
+          );
+        }
+      } catch (err) {
+        if (seq !== scanSeq.current) return;
+        setScanTone('warn');
+        setScanNote(`${err.message} Ảnh vẫn được giữ — bạn có thể nhập tay hoặc chọn ảnh khác.`);
+      } finally {
+        if (seq === scanSeq.current) setScanBusy(false);
+      }
     } catch (err) {
       toast(err.message, 'error');
     } finally {
       setImageBusy('');
     }
+  };
+
+  const clearImage = (side) => {
+    if (side === 'front') {
+      scanSeq.current += 1;
+      setScanBusy(false);
+      setScanNote('');
+    }
+    setField(`${side}_image`, '');
   };
 
   const reloadSummary = async () => {
@@ -238,8 +322,8 @@ export default function KycScreen({ navigation }) {
 
       <Card style={{ padding: 14, marginBottom: 12 }}>
         <Text style={{ fontSize: 12, color: colors.muted, lineHeight: 18 }}>
-          Hệ thống đối chiếu thông tin bạn nhập với ảnh giấy tờ bằng OCR, kiểm tra số giấy tờ trùng lặp, sau đó gửi liên kết
-          xác thực tới email liên hệ để hoàn tất KYC. Ảnh cần chụp ngang, đủ sáng và rõ nét.
+          Hệ thống tự động đọc thông tin trên ảnh giấy tờ để điền vào biểu mẫu, kiểm tra số giấy tờ trùng lặp, sau đó gửi
+          liên kết xác thực tới email liên hệ để hoàn tất KYC. Ảnh dọc hoặc ngang đều được, miễn là đủ sáng và rõ nét.
         </Text>
       </Card>
 
@@ -355,7 +439,7 @@ export default function KycScreen({ navigation }) {
               <Button
                 title="Xóa"
                 variant="danger"
-                onPress={() => setField('front_image', '')}
+                onPress={() => clearImage('front')}
                 style={{ width: 90 }}
               />
             </View>
@@ -393,7 +477,7 @@ export default function KycScreen({ navigation }) {
                 onPress={() => pickImage('back')}
                 style={{ flex: 1, marginRight: 6 }}
               />
-              <Button title="Xóa" variant="danger" onPress={() => setField('back_image', '')} style={{ width: 90 }} />
+              <Button title="Xóa" variant="danger" onPress={() => clearImage('back')} style={{ width: 90 }} />
             </View>
           </View>
         ) : (
@@ -410,6 +494,28 @@ export default function KycScreen({ navigation }) {
           <Text style={{ fontSize: 11, color: colors.red, marginBottom: 8 }}>{fieldErrors.back_image}</Text>
         ) : null}
 
+        {scanNote ? (
+          <View
+            style={{
+              backgroundColor:
+                scanTone === 'success' ? colors.primaryPale : scanTone === 'warn' ? colors.amberSoft : colors.blueSoft,
+              borderRadius: 10,
+              padding: 10,
+              marginBottom: 10,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 12,
+                lineHeight: 18,
+                color: scanTone === 'success' ? colors.primaryDark : scanTone === 'warn' ? '#92400e' : colors.blue,
+              }}
+            >
+              {scanNote}
+            </Text>
+          </View>
+        ) : null}
+
         {error ? (
           <View style={{ backgroundColor: colors.redSoft, borderRadius: 10, padding: 10, marginBottom: 10 }}>
             <Text style={{ fontSize: 12, color: '#991b1b', lineHeight: 18 }}>{error}</Text>
@@ -417,10 +523,10 @@ export default function KycScreen({ navigation }) {
         ) : null}
 
         <Button
-          title={pending ? 'Cập nhật hồ sơ xác thực' : 'Gửi hồ sơ xác thực'}
+          title={scanBusy ? 'Đang đọc thông tin trên ảnh…' : pending ? 'Cập nhật hồ sơ xác thực' : 'Gửi hồ sơ xác thực'}
           icon="shield-checkmark-outline"
           loading={busy}
-          disabled={Boolean(imageBusy)}
+          disabled={Boolean(imageBusy) || scanBusy}
           onPress={submit}
         />
         {busy ? (
