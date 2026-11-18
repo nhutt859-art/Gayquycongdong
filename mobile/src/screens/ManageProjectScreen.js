@@ -70,6 +70,8 @@ export default function ManageProjectScreen({ navigation, route }) {
   const [closeBusy, setCloseBusy] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState(false);
   const isOwner = project?.my_role === 'owner';
+  const activeCollaborators = (project?.collaborators || []).filter((c) => c.accepted_at);
+  const pendingInvitations = (project?.collaborators || []).filter((c) => !c.accepted_at);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -253,15 +255,17 @@ export default function ManageProjectScreen({ navigation, route }) {
     }
   };
 
-  const removeCollaborator = (userId) => {
+  const removeCollaborator = (userId, pending = false) => {
     confirmAction(
-      'Mời cộng tác viên ra?',
-      'Cộng tác viên này sẽ không còn quyền quản lý dự án. Chủ dự án, các cộng tác viên còn lại, quản trị viên và nhà tài trợ sẽ được thông báo.',
+      pending ? 'Hủy lời mời cộng tác?' : 'Mời cộng tác viên ra?',
+      pending
+        ? 'Người được mời sẽ không thể chấp nhận lời mời này nữa.'
+        : 'Cộng tác viên này sẽ không còn quyền quản lý dự án. Chủ dự án, các cộng tác viên còn lại, quản trị viên và nhà tài trợ sẽ được thông báo.',
       async () => {
         try {
           await api.del(`/projects/${id}/collaborators/${userId}`);
           setProject((p) => ({ ...p, collaborators: p.collaborators.filter((c) => c.user_id !== userId) }));
-          toast('Đã mời cộng tác viên ra khỏi dự án.', 'success');
+          toast(pending ? 'Đã hủy lời mời cộng tác.' : 'Đã mời cộng tác viên ra khỏi dự án.', 'success');
         } catch (err) {
           toast(err.message, 'error');
         }
@@ -735,8 +739,13 @@ export default function ManageProjectScreen({ navigation, route }) {
               <Button title="Gửi lời mời" onPress={invite} loading={inviteBusy} />
             </Card>
           ) : null}
-          <SectionHeader title="Đội ngũ" subtitle={`${project.collaborators?.length || 0} người`} />
-          {(project.collaborators || []).map((c) => (
+          <SectionHeader title="Cộng tác viên" subtitle={`${activeCollaborators.length} người đã chấp nhận`} />
+          {activeCollaborators.length === 0 ? (
+            <Text style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+              Chưa có cộng tác viên đã chấp nhận lời mời.
+            </Text>
+          ) : null}
+          {activeCollaborators.map((c) => (
             <Card key={`${c.user_id}-${c.role}`} style={{ padding: 12, marginBottom: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ flex: 1 }}>
@@ -744,13 +753,43 @@ export default function ManageProjectScreen({ navigation, route }) {
                   <Text style={{ fontSize: 10, color: colors.muted }}>
                     {c.email} · {c.role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'}
                   </Text>
-                  <Text style={{ fontSize: 10, color: c.accepted_at ? colors.primary : colors.amber, marginTop: 2 }}>
-                    {c.accepted_at ? 'Đã chấp nhận' : 'Đang chờ chấp nhận'}
+                  <Text style={{ fontSize: 10, color: colors.primary, marginTop: 2 }}>
+                    Đã chấp nhận {formatDate(c.accepted_at)}
                   </Text>
                 </View>
                 {isOwner ? (
                   <Pressable onPress={() => removeCollaborator(c.user_id)} hitSlop={8}>
                     <Ionicons name="person-remove-outline" size={18} color={colors.red} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </Card>
+          ))}
+
+          <SectionHeader
+            title="Đang chờ chấp nhận lời mời"
+            subtitle={`${pendingInvitations.length} lời mời`}
+          />
+          {pendingInvitations.length === 0 ? (
+            <Text style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+              Không có lời mời nào đang chờ.
+            </Text>
+          ) : null}
+          {pendingInvitations.map((c) => (
+            <Card key={`${c.user_id}-${c.role}`} style={{ padding: 12, marginBottom: 8, borderColor: '#fcd34d' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '800', fontSize: 13 }}>{c.full_name}</Text>
+                  <Text style={{ fontSize: 10, color: colors.muted }}>
+                    {c.email} · {c.role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'}
+                  </Text>
+                  <Text style={{ fontSize: 10, color: colors.amber, marginTop: 2 }}>
+                    Đã mời {formatDate(c.invited_at)}
+                  </Text>
+                </View>
+                {isOwner ? (
+                  <Pressable onPress={() => removeCollaborator(c.user_id, true)} hitSlop={8}>
+                    <Text style={{ fontSize: 11, color: colors.red, fontWeight: '800' }}>Hủy lời mời</Text>
                   </Pressable>
                 ) : null}
               </View>

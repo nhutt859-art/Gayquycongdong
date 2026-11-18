@@ -35,51 +35,6 @@ export function minBirthDate() {
   return date.toISOString().slice(0, 10);
 }
 
-export const KYC_SCAN_FIELDS = ['full_name', 'dob', 'document_number', 'address'];
-
-export const KYC_SCAN_FIELD_LABELS = {
-  full_name: 'họ tên',
-  dob: 'ngày sinh',
-  document_number: 'số giấy tờ',
-  address: 'địa chỉ',
-};
-
-function normalizedName(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toUpperCase();
-}
-
-/**
- * OCR thường trả tên không dấu. Nếu tên đã nhập chỉ khác dấu, giữ nguyên bản có dấu.
- */
-export function preferScannedName(current, scanned) {
-  if (!current) return scanned;
-  if (!scanned) return current;
-  return normalizedName(current) === normalizedName(scanned) ? current : scanned;
-}
-
-/**
- * Chỉ điền giá trị OCR vào ô đang trống hoặc đang sai định dạng.
- * Tránh ghi đè thông tin người dùng đã nhập đúng bằng kết quả OCR có thể sai.
- */
-export function shouldFillScannedField(key, current, documentType) {
-  const value = String(current || '').trim();
-  if (!value) return true;
-  if (key === 'dob') return !/^\d{4}-\d{2}-\d{2}$/.test(value);
-  if (key === 'document_number') {
-    const meta = KYC_DOCUMENT_TYPES[documentType] || KYC_DOCUMENT_TYPES.cccd;
-    return !meta.numberPattern.test(value.replace(/[^A-Za-z0-9]/g, ''));
-  }
-  if (key === 'address') return value.length < 5;
-  return false;
-}
-
 export function validateKycDraft(form) {
   const errors = {};
   const meta = KYC_DOCUMENT_TYPES[form.document_type] || KYC_DOCUMENT_TYPES.cccd;

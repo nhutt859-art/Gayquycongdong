@@ -297,6 +297,8 @@ export function ManageProject() {
   }
 
   const isOwner = project.my_role === 'owner';
+  const activeCollaborators = (project.collaborators || []).filter((c) => c.accepted_at);
+  const pendingInvitations = (project.collaborators || []).filter((c) => !c.accepted_at);
   const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const saveProject = async (e) => {
@@ -454,12 +456,15 @@ export function ManageProject() {
     }
   };
 
-  const removeCollaborator = async (userId) => {
-    if (!window.confirm('Mời cộng tác viên này ra khỏi dự án? Chủ dự án, các cộng tác viên còn lại, quản trị viên và nhà tài trợ sẽ được thông báo.')) return;
+  const removeCollaborator = async (userId, pending = false) => {
+    const confirmed = pending
+      ? window.confirm('Hủy lời mời cộng tác này? Người được mời sẽ không thể chấp nhận lời mời nữa.')
+      : window.confirm('Mời cộng tác viên này ra khỏi dự án? Chủ dự án, các cộng tác viên còn lại, quản trị viên và nhà tài trợ sẽ được thông báo.');
+    if (!confirmed) return;
     try {
       await api.del(`/projects/${id}/collaborators/${userId}`);
       setProject((p) => ({ ...p, collaborators: p.collaborators.filter((c) => c.user_id !== userId) }));
-      toast('Đã mời cộng tác viên ra khỏi dự án.', 'success');
+      toast(pending ? 'Đã hủy lời mời cộng tác.' : 'Đã mời cộng tác viên ra khỏi dự án.', 'success');
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -833,23 +838,40 @@ export function ManageProject() {
             )}
           </div>
 
-          <div className="card space-y-2 p-5 md:col-span-2">
-            <h2 className="font-bold">Cộng tác viên ({project.collaborators.length})</h2>
-            {project.collaborators.length === 0 && <p className="text-sm text-slate-500">Chưa có cộng tác viên.</p>}
-            {project.collaborators.map((c) => (
-              <div key={c.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 p-3 text-sm">
-                <div>
-                  <b>{c.full_name}</b>
-                  <div className="text-xs text-slate-500">{c.email} · {c.role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'}</div>
-                  <div className="text-xs text-slate-400">
-                    {c.accepted_at ? `Đã chấp nhận ${formatDate(c.accepted_at)}` : `Đang chờ chấp nhận · mời ${formatDate(c.invited_at)}`}
+          <div className="card space-y-4 p-5 md:col-span-2">
+            <div className="space-y-2">
+              <h2 className="font-bold">Cộng tác viên ({activeCollaborators.length})</h2>
+              {activeCollaborators.length === 0 && <p className="text-sm text-slate-500">Chưa có cộng tác viên đã chấp nhận lời mời.</p>}
+              {activeCollaborators.map((c) => (
+                <div key={c.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 p-3 text-sm">
+                  <div>
+                    <b>{c.full_name}</b>
+                    <div className="text-xs text-slate-500">{c.email} · {c.role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'}</div>
+                    <div className="text-xs text-emerald-700">Đã chấp nhận {formatDate(c.accepted_at)}</div>
                   </div>
+                  {isOwner && (
+                    <button className="text-xs text-red-500 hover:underline" onClick={() => removeCollaborator(c.user_id)}>Mời ra</button>
+                  )}
                 </div>
-                {isOwner && (
-                  <button className="text-xs text-red-500 hover:underline" onClick={() => removeCollaborator(c.user_id)}>Mời ra</button>
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
+
+            <div className="space-y-2 border-t border-slate-200 pt-4">
+              <h2 className="font-bold">Đang chờ chấp nhận lời mời ({pendingInvitations.length})</h2>
+              {pendingInvitations.length === 0 && <p className="text-sm text-slate-500">Không có lời mời nào đang chờ.</p>}
+              {pendingInvitations.map((c) => (
+                <div key={c.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">
+                  <div>
+                    <b>{c.full_name}</b>
+                    <div className="text-xs text-slate-500">{c.email} · {c.role === 'moderator' ? 'Quản trị nội dung' : 'Biên tập viên'}</div>
+                    <div className="text-xs text-amber-700">Đã mời {formatDate(c.invited_at)}</div>
+                  </div>
+                  {isOwner && (
+                    <button className="text-xs text-red-500 hover:underline" onClick={() => removeCollaborator(c.user_id, true)}>Hủy lời mời</button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {!isOwner && (

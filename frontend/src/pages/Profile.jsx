@@ -25,24 +25,13 @@ import { isValidVietnamesePhone, PHONE_HINT } from '../lib/phone';
 import { readDocumentImage } from '../lib/images';
 import {
   KYC_DOCUMENT_TYPES,
-  KYC_SCAN_FIELD_LABELS,
-  KYC_SCAN_FIELDS,
   kycErrorMessage,
   maxBirthDate,
   minBirthDate,
-  preferScannedName,
-  shouldFillScannedField,
   validateKycDraft,
 } from '../lib/kyc';
 
 const EMPTY_PROJECTS = { owned: [], collaborating: [], invitations: [] };
-
-const KYC_NOTE_CLASS = {
-  info: 'border-sky-200 bg-sky-50 text-sky-800',
-  success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-  warn: 'border-amber-200 bg-amber-50 text-amber-800',
-  error: 'border-red-200 bg-red-50 text-red-700',
-};
 
 function emptyKycForm(user) {
   return {
@@ -124,9 +113,6 @@ export default function Profile() {
   const [kycFieldErrors, setKycFieldErrors] = useState({});
   const [kycBusy, setKycBusy] = useState(false);
   const [kycImageBusy, setKycImageBusy] = useState('');
-  const [kycScanBusy, setKycScanBusy] = useState(false);
-  const [kycScanNote, setKycScanNote] = useState(null);
-  const kycScanSeq = useRef(0);
   const kycImageSeq = useRef({ front: 0, back: 0 });
   const [kycMsg, setKycMsg] = useState('');
   const [kycDevUrl, setKycDevUrl] = useState('');
@@ -246,37 +232,9 @@ export default function Profile() {
     });
     setKycError('');
     setKycFieldErrors({});
-    setKycScanNote(null);
-    setKycScanBusy(false);
-    kycScanSeq.current += 1;
     kycImageSeq.current.front += 1;
     kycImageSeq.current.back += 1;
     setKycOpen(true);
-  };
-
-  const applyScannedFields = (fields) => {
-    if (!fields) return [];
-    const filled = KYC_SCAN_FIELDS.filter((key) => fields[key]);
-    if (!filled.length) return [];
-
-    setKycForm((value) => {
-      const next = { ...value };
-      for (const key of filled) {
-        next[key] =
-          key === 'full_name'
-            ? preferScannedName(value.full_name, fields[key])
-            : shouldFillScannedField(key, value[key], value.document_type)
-              ? fields[key]
-              : value[key];
-      }
-      return next;
-    });
-    setKycFieldErrors((errors) => {
-      const next = { ...errors };
-      for (const key of filled) next[key] = '';
-      return next;
-    });
-    return filled;
   };
 
   const pickKycImage = (side) => async (event) => {
@@ -286,12 +244,9 @@ export default function Profile() {
 
     const imageSeq = kycImageSeq.current[side] + 1;
     kycImageSeq.current[side] = imageSeq;
-    const scanSeq = side === 'front' ? kycScanSeq.current + 1 : kycScanSeq.current;
-    if (side === 'front') kycScanSeq.current = scanSeq;
 
     setKycImageBusy(side);
     setKycError('');
-    setKycScanNote(null);
 
     let dataUrl;
     try {
@@ -310,51 +265,11 @@ export default function Profile() {
     const field = side === 'front' ? 'front_image' : 'back_image';
     setKycForm((value) => ({ ...value, [field]: dataUrl }));
     setKycFieldErrors((errors) => ({ ...errors, [field]: '' }));
-
-    if (side !== 'front' || scanSeq !== kycScanSeq.current) return;
-
-    setKycScanBusy(true);
-    setKycScanNote({ tone: 'info', text: 'Đang đọc thông tin trên ảnh…' });
-    try {
-      const scan = await api.post('/me/kyc/scan', {
-        document_type: kycForm.document_type,
-        image: dataUrl,
-      });
-      if (scanSeq !== kycScanSeq.current) return;
-
-      const filled = applyScannedFields(scan?.fields || {});
-      if (filled.length) {
-        const labels = filled.map((key) => KYC_SCAN_FIELD_LABELS[key]).filter(Boolean);
-        const missing = (scan?.missing || []).map((key) => KYC_SCAN_FIELD_LABELS[key]).filter(Boolean);
-        setKycScanNote({
-          tone: 'success',
-          text: `Đã đọc được ${labels.join(', ')} từ ảnh. Vui lòng kiểm tra lại.${missing.length ? ` Chưa đọc được: ${missing.join(', ')}.` : ''}`,
-        });
-      } else {
-        setKycScanNote({
-          tone: 'warn',
-          text: scan?.message || 'Ảnh đã được tải lên nhưng chưa đọc được thông tin. Vui lòng nhập tay hoặc chọn ảnh rõ hơn.',
-        });
-      }
-    } catch (err) {
-      if (scanSeq !== kycScanSeq.current) return;
-      setKycScanNote({
-        tone: 'warn',
-        text: `${err.message} Ảnh vẫn được giữ — bạn có thể nhập tay hoặc chọn ảnh khác.`,
-      });
-    } finally {
-      if (scanSeq === kycScanSeq.current) setKycScanBusy(false);
-    }
   };
 
   const clearKycImage = (side) => {
     kycImageSeq.current[side] += 1;
     setKycImageBusy((current) => (current === side ? '' : current));
-    if (side === 'front') {
-      kycScanSeq.current += 1;
-      setKycScanBusy(false);
-      setKycScanNote(null);
-    }
     const field = side === 'front' ? 'front_image' : 'back_image';
     setKycForm((value) => ({ ...value, [field]: '' }));
     setKycFieldErrors((errors) => ({ ...errors, [field]: '' }));
@@ -781,12 +696,10 @@ export default function Profile() {
               className="btn-primary text-sm disabled:opacity-60"
               type="submit"
               form="kyc-form"
-              disabled={kycBusy || !!kycImageBusy || kycScanBusy}
+              disabled={kycBusy || !!kycImageBusy}
             >
               {kycBusy ? (
                 <><Spinner className="mr-1 h-3 w-3" /> Đang đối chiếu OCR…</>
-              ) : kycScanBusy ? (
-                <><Spinner className="mr-1 h-3 w-3" /> Đang đọc thông tin trên ảnh…</>
               ) : (
                 'Gửi hồ sơ xác thực'
               )}
@@ -795,7 +708,7 @@ export default function Profile() {
         }
       >
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-          Hệ thống tự động đọc thông tin trên ảnh CCCD/hộ chiếu để điền vào biểu mẫu, kiểm tra số giấy tờ trùng lặp,
+          Vui lòng tự nhập thông tin trên giấy tờ và tải lên ảnh mặt trước, mặt sau. Hệ thống kiểm tra số giấy tờ trùng lặp,
           sau đó gửi liên kết xác thực tới email liên hệ để hoàn tất KYC.
         </div>
 
@@ -815,9 +728,6 @@ export default function Profile() {
                       : 'border-slate-300 bg-white hover:border-emerald-300'
                   }`}
                   onClick={() => {
-                    kycScanSeq.current += 1;
-                    setKycScanBusy(false);
-                    setKycScanNote(null);
                     setKycForm((value) => ({ ...value, document_type: key }));
                     setKycFieldErrors((errors) => ({ ...errors, document_number: '', back_image: '' }));
                   }}
@@ -939,13 +849,6 @@ export default function Profile() {
               {kycFieldErrors.back_image && <p className="mt-1 text-xs text-red-600">{kycFieldErrors.back_image}</p>}
             </div>
           </div>
-
-          {kycScanNote && (
-            <div className={`rounded-xl border p-3 text-xs ${KYC_NOTE_CLASS[kycScanNote.tone] || KYC_NOTE_CLASS.info}`}>
-              {kycScanNote.tone === 'info' && <Spinner className="mr-1 inline h-3 w-3" />}
-              {kycScanNote.text}
-            </div>
-          )}
         </form>
       </Modal>
 
