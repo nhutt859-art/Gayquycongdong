@@ -17,7 +17,7 @@
                                                                                   │
                                                                         ┌─────────▼─────────┐
                                                                         │ PostgreSQL (Neon) │
-                                                                        │ 17 bảng + trigger │
+                                                                        │ 18 bảng + trigger │
                                                                         └───────────────────┘
 ```
 
@@ -63,6 +63,17 @@ npm run ai:refresh
 ```
 
 > ⚠️ `db:setup` và `db:seed:realistic -- --apply` đều thay đổi mạnh dữ liệu. Chỉ dùng trên database đồ án, không chạy trên dữ liệu production thật.
+
+### Điểm tín nhiệm theo bằng chứng
+
+`trust_events` lưu từng bằng chứng đã xác thực (email, KYC, hồ sơ đầy đủ, thâm niên, tài trợ đã thanh toán, chiến dịch hoàn thành, cập nhật tiến độ đúng hạn, vi phạm/gian lận do admin xác nhận và điều chỉnh thủ công). `users.trust_score` chỉ là bản tổng hợp có trần theo danh mục; mỗi sự kiện chỉ được cộng/trừ một lần nhờ ràng buộc duy nhất. Người dùng xem chi tiết tại `GET /api/me/trust`, quản trị viên xem nhật ký và điều chỉnh kèm lý do tại `/admin/nguoi-dung`.
+
+Database cũ nâng cấp bằng:
+
+```powershell
+npm run db:migrate-trust
+npm run trust:recompute -- --preserve
+```
 
 ### 2. Frontend
 
@@ -143,11 +154,11 @@ Mô hình hiện tại: **`success-model-v4.0`** — logistic regression chuẩn
 | `reward_count` — số gói tri ân | +0.7140 | Có gói tri ân giúp tăng chuyển đổi |
 | `description_length` — độ dài mô tả | +0.2456 | Mô tả kỹ cho thấy mức độ chuẩn bị |
 | `category_rate` — tỷ lệ thành công danh mục | +0.3298 | Danh mục có lịch sử tốt hơn thì dễ thành công hơn |
-| `owner_trust` — điểm tín nhiệm chủ dự án | +0.2495 | Bao gồm KYC và lịch sử hoạt động |
+| `owner_trust` — điểm tín nhiệm chủ dự án | +0.2495 | Tổng hợp từ bằng chứng đã xác thực: email/KYC, thâm niên, tài trợ, chiến dịch hoàn thành, cập nhật tiến độ |
 
 Khi dự đoán, hệ thống lưu vào `ai_predictions`: xác suất, nhãn, độ tin cậy, **đóng góp của từng tín hiệu theo điểm phần trăm**, snapshot giá trị đầu vào và metrics của mô hình. Frontend hiển thị top tín hiệu tác động mạnh nhất kèm giải thích, không chỉ một con số phần trăm.
 
-Các tín hiệu `owner_kyc`, `owner_prior_success`, `owner_prior_projects` đã được loại bỏ vì hệ số âm/nhiễu do đa cộng tuyến; KYC và lịch sử chủ dự án đã nằm trong `owner_trust`.
+Các tín hiệu `owner_kyc`, `owner_prior_success`, `owner_prior_projects` đã được loại bỏ vì hệ số âm/nhiễu do đa cộng tuyến; các bằng chứng này đã nằm trong `owner_trust`.
 
 ## AI gợi ý dự án
 
@@ -220,7 +231,7 @@ Tài khoản quản trị production dùng tài khoản thật đã được gi�
 | Frontend | React 19, Vite 8, React Router 7, Tailwind CSS 3, Oxlint |
 | Mobile | Expo SDK 58, React Native 0.88, React Navigation 7, SecureStore/AsyncStorage |
 | Backend | Node.js, Express 5, `pg`, Zod, JWT (`jsonwebtoken`), bcrypt, Nodemailer (SMTP local) + Brevo/Resend/SendGrid HTTP API |
-| Database | PostgreSQL 15+ (Neon), 17 bảng, trigger đồng bộ số tiền |
+| Database | PostgreSQL 15+ (Neon), 18 bảng, trigger đồng bộ số tiền |
 | AI | Logistic regression tự cài đặt, 5-fold cross-validation, giải thích theo đóng góp từng tín hiệu; không dùng thư viện ML nặng |
 | Kiểm thử | `scripts/smoke.js` (API end-to-end), build + lint frontend, Expo export mobile, GitHub Actions CI |
 

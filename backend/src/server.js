@@ -12,6 +12,7 @@ import adminRoutes from './routes/admin.js';
 import aiRoutes from './routes/ai.js';
 import paymentRoutes from './routes/payments.js';
 import { isVnpayConfigured } from './services/vnpay.js';
+import { syncTrustMetrics } from './services/trust.js';
 
 if (!process.env.DATABASE_URL) {
   console.error('\n❌ Thiếu DATABASE_URL trong backend/.env');
@@ -191,6 +192,34 @@ async function start() {
     console.log(`   CORS cho phép: ${allowedOrigins.join(', ')}`);
     console.log(`   Health check: http://localhost:${port}/api/health\n`);
   });
+
+  // Tính lại định kỳ điểm tín nhiệm: bổ sung mốc thâm niên 30 ngày và tổng hợp
+  // lại các danh mục. Mặc định 6 giờ/lần, có thể đổi bằng TRUST_SYNC_INTERVAL_MS.
+  const trustInterval = Number(process.env.TRUST_SYNC_INTERVAL_MS || 6 * 60 * 60 * 1000);
+  let trustSyncRunning = false;
+  const runTrustSync = async () => {
+    if (trustSyncRunning) return;
+    trustSyncRunning = true;
+    try {
+      const result = await syncTrustMetrics(pool);
+      if (result.tenure_events || result.users) {
+        console.log(
+          `🔄 Đồng bộ tín nhiệm: +${result.tenure_events} mốc thâm niên, ${result.users} tài khoản.`,
+        );
+      }
+    } catch (err) {
+      if (err?.code === '42P01') {
+        console.warn('⚠️  Chưa có bảng trust_events — chạy npm run db:migrate-trust.');
+      } else {
+        console.error('[trust] Không đồng bộ được điểm tín nhiệm:', err.message);
+      }
+    } finally {
+      trustSyncRunning = false;
+    }
+  };
+  runTrustSync();
+  const trustTimer = setInterval(runTrustSync, trustInterval);
+  trustTimer.unref?.();
 
   const shutdown = async (signal) => {
     console.log(`\n${signal} — đang dừng server...`);

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import pg from 'pg';
+import { backfillTrustEvents, preserveTrustScores, recomputeTrustScores } from '../src/services/trust.js';
 
 const { Client } = pg;
 const seedOnly = process.argv.includes('--seed-only');
@@ -43,7 +44,7 @@ async function run() {
 
   if (!seedOnly) {
     const schema = await fs.readFile(path.join(here, '..', 'db', 'schema.sql'), 'utf8');
-    console.log('🏗️  Đang tạo schema (17 bảng)...');
+    console.log('🏗️  Đang tạo schema (18 bảng)...');
     await client.query(schema);
     console.log('✅ Schema xong.');
   }
@@ -52,6 +53,16 @@ async function run() {
   console.log('🌱 Đang nạp dữ liệu mẫu (10 dự án)...');
   await client.query(seed);
   console.log('✅ Seed xong.');
+
+  // Sinh bằng chứng tín nhiệm từ dữ liệu vừa nạp rồi bảo toàn điểm seed.
+  console.log('🧮 Đang khởi tạo sự kiện tín nhiệm...');
+  await client.query('BEGIN');
+  const backfilled = await backfillTrustEvents(client);
+  const legacy = await preserveTrustScores(client);
+  const updated = await recomputeTrustScores(client);
+  await client.query('COMMIT');
+  const totalEvents = Object.values(backfilled).reduce((sum, value) => sum + value, 0);
+  console.log(`✅ Tín nhiệm: ${totalEvents} sự kiện, ${legacy} điểm kế thừa, ${updated} tài khoản.`);
 
   const counts = await client.query(`
     select

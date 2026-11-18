@@ -48,6 +48,7 @@ export default function ProfileScreen({ navigation }) {
   const [transactions, setTransactions] = useState([]);
   const [projectData, setProjectData] = useState({ owned: [], collaborating: [], invitations: [] });
   const [projectListTab, setProjectListTab] = useState('');
+  const [trust, setTrust] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [form, setForm] = useState({ full_name: '', phone: '', avatar_url: '' });
@@ -65,6 +66,16 @@ export default function ProfileScreen({ navigation }) {
     });
   }, [currentUser]);
 
+  const loadTrust = useCallback(async () => {
+    try {
+      const data = await api.get('/me/trust');
+      setTrust(data);
+      return data;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const loadHistory = useCallback(async () => {
     if (!currentUser) return;
     setLoading(true);
@@ -74,6 +85,7 @@ export default function ProfileScreen({ navigation }) {
         api.get('/me/pledges'),
         api.get('/me/transactions'),
         api.get('/me/projects'),
+        loadTrust(),
       ]);
       setPledges(pledgeData?.items || []);
       setTransactions(txData?.items || []);
@@ -87,7 +99,7 @@ export default function ProfileScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
-  }, [currentUser]);
+  }, [currentUser, loadTrust]);
 
   useFocusEffect(
     useCallback(() => {
@@ -119,6 +131,7 @@ export default function ProfileScreen({ navigation }) {
       });
       updateCurrentUser(data.user);
       await refreshSession();
+      await loadTrust();
       toast('Đã cập nhật hồ sơ.', 'success');
     } catch (err) {
       setProfileError(err.message);
@@ -171,6 +184,14 @@ export default function ProfileScreen({ navigation }) {
 
   const unread = notifications.filter((n) => !n.is_read).length;
   const isAdmin = currentUser.role === 'admin';
+  const trustTone =
+    trust?.level?.tone === 'emerald'
+      ? 'emerald'
+      : trust?.level?.tone === 'blue'
+        ? 'blue'
+        : trust?.level?.tone === 'amber'
+          ? 'amber'
+          : 'red';
 
   return (
     <Screen topInset>
@@ -196,6 +217,99 @@ export default function ProfileScreen({ navigation }) {
             </Text>
           </View>
         </View>
+
+        {trust && (
+          <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 12, fontWeight: '800' }}>Chi tiết điểm tín nhiệm</Text>
+              <Badge label={trust.level?.label || ''} tone={trustTone} />
+            </View>
+            <View
+              style={{
+                height: 6,
+                backgroundColor: colors.border,
+                borderRadius: 999,
+                marginTop: 8,
+                overflow: 'hidden',
+              }}
+            >
+              <View
+                style={{
+                  width: `${Math.max(0, Math.min(100, Number(trust.score) || 0))}%`,
+                  height: 6,
+                  backgroundColor: colors.primary,
+                  borderRadius: 999,
+                }}
+              />
+            </View>
+            <Text style={{ fontSize: 10, color: colors.muted, marginTop: 4 }}>{trust.level?.description}</Text>
+            {trust.breakdown
+              ?.filter((item) => item.cap !== null || item.count > 0)
+              .map((item) => (
+                <View
+                  key={item.key}
+                  style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}
+                >
+                  <Text style={{ fontSize: 11, color: colors.muted, flex: 1, marginRight: 8 }}>
+                    {item.label}
+                    {item.cap !== null ? ` (${item.applied}/${item.cap})` : ''}
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: '800',
+                      color: item.applied >= 0 ? colors.primary : colors.red,
+                    }}
+                  >
+                    {item.applied > 0 ? '+' : ''}
+                    {item.applied}
+                  </Text>
+                </View>
+              ))}
+            {trust.actions?.filter((action) => action.available && !action.automatic).length > 0 && (
+              <View style={{ marginTop: 8 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800' }}>Cách tăng điểm</Text>
+                {trust.actions
+                  .filter((action) => action.available && !action.automatic)
+                  .slice(0, 5)
+                  .map((action) => (
+                    <Text key={action.key} style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
+                      • +{action.points} {action.label}
+                      {action.cap ? ` · ${action.current}/${action.cap} điểm` : ''}
+                    </Text>
+                  ))}
+              </View>
+            )}
+            {trust.events?.length > 0 && (
+              <View style={{ marginTop: 8 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800' }}>
+                  Lịch sử gần đây ({trust.totals?.events || trust.events.length})
+                </Text>
+                {trust.events.slice(0, 5).map((event) => (
+                  <View
+                    key={event.id}
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 3 }}
+                  >
+                    <Text style={{ fontSize: 10, color: colors.muted, flex: 1, marginRight: 6 }} numberOfLines={2}>
+                      {event.label} · {formatDate(event.created_at)}
+                      {event.note ? `\n${event.note}` : ''}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: '800',
+                        color: event.delta >= 0 ? colors.primary : colors.red,
+                      }}
+                    >
+                      {event.delta > 0 ? '+' : ''}
+                      {event.delta}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 }}>
           <View style={{ width: '50%', padding: 3 }}>

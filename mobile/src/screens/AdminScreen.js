@@ -30,6 +30,7 @@ import {
   SectionHeader,
   StatTile,
   StatusBadge,
+  confirmAction,
 } from '../components/ui';
 
 const TABS = [
@@ -60,6 +61,12 @@ export default function AdminScreen({ navigation, route }) {
   const [reloadTick, setReloadTick] = useState(0);
   const [rejectTarget, setRejectTarget] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [trustTarget, setTrustTarget] = useState(null);
+  const [trustDetail, setTrustDetail] = useState(null);
+  const [trustBusy, setTrustBusy] = useState(false);
+  const [trustError, setTrustError] = useState('');
+  const [trustDelta, setTrustDelta] = useState('10');
+  const [trustReason, setTrustReason] = useState('');
   const [newCategory, setNewCategory] = useState({ name: '', description: '' });
   const [editingCategory, setEditingCategory] = useState(null);
 
@@ -166,16 +173,68 @@ export default function AdminScreen({ navigation, route }) {
     }
   };
 
-  const updateReport = async (report, status) => {
+  const updateReport = async (report, payload) => {
+    const body = typeof payload === 'string' ? { status: payload } : payload;
     setBusy(report.id);
     try {
-      await api.patch(`/admin/reports/${report.id}`, { status });
-      toast('Đã cập nhật báo cáo.', 'success');
+      const data = await api.patch(`/admin/reports/${report.id}`, body);
+      toast(
+        data?.penalty_applied ? data.message || 'Đã xác nhận vi phạm và trừ điểm tín nhiệm.' : 'Đã cập nhật báo cáo.',
+        'success',
+      );
       refresh();
     } catch (err) {
       toast(err.message, 'error');
     } finally {
       setBusy('');
+    }
+  };
+
+  const openTrust = async (user) => {
+    setTrustTarget(user);
+    setTrustDetail(null);
+    setTrustError('');
+    setTrustBusy(true);
+    setTrustDelta('10');
+    setTrustReason('');
+    try {
+      const data = await api.get(`/admin/users/${user.id}/trust`);
+      setTrustDetail(data);
+    } catch (err) {
+      setTrustError(err.message);
+    } finally {
+      setTrustBusy(false);
+    }
+  };
+
+  const adjustTrust = async () => {
+    if (!trustTarget) return;
+    const delta = Number(trustDelta);
+    if (!Number.isInteger(delta) || delta === 0 || delta < -30 || delta > 30) {
+      toast('Mức điều chỉnh phải là số nguyên khác 0 trong khoảng -30…+30.', 'warning');
+      return;
+    }
+    if (trustReason.trim().length < 5) {
+      toast('Vui lòng nhập lý do điều chỉnh tối thiểu 5 ký tự.', 'warning');
+      return;
+    }
+    setTrustBusy(true);
+    setTrustError('');
+    try {
+      const data = await api.post(`/admin/users/${trustTarget.id}/trust`, {
+        delta,
+        reason: trustReason.trim(),
+      });
+      setTrustDetail(data);
+      setTrustDelta('10');
+      setTrustReason('');
+      toast(data?.message || 'Đã điều chỉnh điểm tín nhiệm.', 'success');
+      refresh();
+    } catch (err) {
+      setTrustError(err.message);
+      toast(err.message, 'error');
+    } finally {
+      setTrustBusy(false);
     }
   };
 
@@ -681,11 +740,37 @@ export default function AdminScreen({ navigation, route }) {
                       {r.reporter_name} · {r.reporter_email} · {formatDateTime(r.created_at)}
                     </Text>
                   </View>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
                   <Badge
                     label={r.status === 'open' ? 'Mới' : r.status === 'reviewed' ? 'Đã xem' : 'Đã đóng'}
                     tone={r.status === 'open' ? 'amber' : r.status === 'reviewed' ? 'blue' : 'slate'}
                   />
+                  {Number(r.penalty_points) > 0 ? (
+                    <Badge label={`Đã trừ ${r.penalty_points} điểm`} tone="red" style={{ marginLeft: 5 }} />
+                  ) : null}
                 </View>
+                {r.status !== 'closed' ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
+                    <Text style={{ fontSize: 10, color: colors.soft, marginRight: 8 }}>Xác nhận vi phạm:</Text>
+                    {[10, 20, 30].map((points) => (
+                      <Pressable
+                        key={points}
+                        disabled={busy === r.id}
+                        onPress={() =>
+                          confirmAction(
+                            'Xác nhận vi phạm',
+                            `Đóng báo cáo và trừ ${points} điểm tín nhiệm của chủ dự án?`,
+                            () => updateReport(r, { status: 'closed', penalty_points: points }),
+                          )
+                        }
+                        style={{ marginRight: 12 }}
+                      >
+                        <Text style={{ fontSize: 11, color: colors.red, fontWeight: '700' }}>−{points} điểm</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
                 {r.status === 'open' ? (
                   <View style={{ flexDirection: 'row', marginTop: 6 }}>
                     <Pressable onPress={() => updateReport(r, 'reviewed')} style={{ marginRight: 14 }}>
@@ -748,8 +833,13 @@ export default function AdminScreen({ navigation, route }) {
                         style={{ marginLeft: 4 }}
                       />
                     </View>
-                    <Text style={{ fontSize: 9, color: colors.soft, marginTop: 3 }}>
-                      Tin cậy {Math.round(Number(u.trust_score))} · {u.owned_projects} dự án · {u.paid_pledges} tài trợ
+                    <Pressable onPress={() => openTrust(u)} hitSlop={6} style={{ marginTop: 4 }}>
+                      <Text style={{ fontSize: 10, color: colors.primary, fontWeight: '700' }}>
+                        Tin cậy {Math.round(Number(u.trust_score))}/100 · Lịch sử tín nhiệm →
+                      </Text>
+                    </Pressable>
+                    <Text style={{ fontSize: 9, color: colors.soft, marginTop: 2 }}>
+                      {u.owned_projects} dự án · {u.paid_pledges} tài trợ
                     </Text>
                   </View>
                   <Button
@@ -842,6 +932,134 @@ export default function AdminScreen({ navigation, route }) {
           multiline
         />
         <Button title="Xác nhận từ chối" variant="danger" onPress={rejectProject} loading={busy === rejectTarget?.id} />
+      </ModalSheet>
+
+      <ModalSheet
+        open={!!trustTarget}
+        title={`Điểm tín nhiệm — ${trustTarget?.full_name || ''}`}
+        onClose={() => setTrustTarget(null)}
+      >
+        {trustBusy && !trustDetail ? <Loading text="Đang tải lịch sử tín nhiệm…" /> : null}
+        {trustError ? (
+          <Text style={{ fontSize: 12, color: colors.red, marginBottom: 8 }}>{trustError}</Text>
+        ) : null}
+        {trustDetail ? (
+          <View>
+            <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+              <View style={{ flex: 1, marginRight: 6 }}>
+                <Card style={{ padding: 10 }}>
+                  <Text style={{ fontSize: 10, color: colors.muted }}>Điểm hiện tại</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '900', color: colors.primary }}>
+                    {trustDetail.score}/100
+                  </Text>
+                </Card>
+              </View>
+              <View style={{ flex: 1, marginRight: 6 }}>
+                <Card style={{ padding: 10 }}>
+                  <Text style={{ fontSize: 10, color: colors.muted }}>Mức tín nhiệm</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '800' }}>{trustDetail.level?.label || '—'}</Text>
+                </Card>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Card style={{ padding: 10 }}>
+                  <Text style={{ fontSize: 10, color: colors.muted }}>Sự kiện</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '800' }}>{trustDetail.totals?.events || 0}</Text>
+                </Card>
+              </View>
+            </View>
+
+            <Card style={{ padding: 11, marginBottom: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '800', marginBottom: 5 }}>Phân rã theo bằng chứng</Text>
+              {(trustDetail.breakdown || [])
+                .filter((item) => item.cap !== null || item.count > 0)
+                .map((item) => (
+                  <View
+                    key={item.key}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 }}
+                  >
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '600' }}>{item.label}</Text>
+                      <Text style={{ fontSize: 9, color: colors.soft }}>
+                        {item.count} sự kiện
+                        {item.remaining !== null ? ` · còn ${item.remaining} điểm` : ''}
+                      </Text>
+                    </View>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: '800',
+                        color: item.applied >= 0 ? colors.primary : colors.red,
+                      }}
+                    >
+                      {item.applied > 0 ? '+' : ''}
+                      {item.applied}
+                      {item.cap !== null ? `/${item.cap}` : ''}
+                    </Text>
+                  </View>
+                ))}
+            </Card>
+
+            <Card style={{ padding: 11, marginBottom: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '800' }}>Điều chỉnh thủ công</Text>
+              <Text style={{ fontSize: 10, color: colors.muted, marginTop: 2, marginBottom: 8 }}>
+                Mọi điều chỉnh đều được lưu vào nhật ký kèm lý do và quản trị viên thực hiện.
+              </Text>
+              <Input
+                label="Số điểm (-30…+30)"
+                value={trustDelta}
+                onChangeText={setTrustDelta}
+                keyboardType="numbers-and-punctuation"
+                placeholder="VD: 10 hoặc -20"
+              />
+              <Input
+                label="Lý do (bắt buộc)"
+                value={trustReason}
+                onChangeText={setTrustReason}
+                placeholder="VD: Bổ sung minh chứng giải ngân đã xác minh…"
+                multiline
+              />
+              <Button title="Lưu điều chỉnh" onPress={adjustTrust} loading={trustBusy} />
+            </Card>
+
+            <Card style={{ padding: 11 }}>
+              <Text style={{ fontSize: 12, fontWeight: '800', marginBottom: 5 }}>
+                Lịch sử tín nhiệm ({trustDetail.events?.length || 0})
+              </Text>
+              {(trustDetail.events || []).length === 0 ? (
+                <Text style={{ fontSize: 11, color: colors.muted }}>Chưa có sự kiện tín nhiệm.</Text>
+              ) : (
+                (trustDetail.events || []).map((event) => (
+                  <View
+                    key={event.id}
+                    style={{ flexDirection: 'row', alignItems: 'flex-start', marginTop: 6 }}
+                  >
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700' }}>{event.label}</Text>
+                      <Text style={{ fontSize: 10, color: colors.muted }} numberOfLines={2}>
+                        {event.note || event.category_label}
+                      </Text>
+                      <Text style={{ fontSize: 9, color: colors.soft }}>
+                        {formatDateTime(event.created_at)}
+                        {event.created_by_name ? ` · ${event.created_by_name}` : ''}
+                        {event.source ? ` · ${event.source}` : ''}
+                      </Text>
+                    </View>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: '800',
+                        color: event.delta >= 0 ? colors.primary : colors.red,
+                      }}
+                    >
+                      {event.delta > 0 ? '+' : ''}
+                      {event.delta}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </Card>
+          </View>
+        ) : null}
       </ModalSheet>
     </Screen>
   );

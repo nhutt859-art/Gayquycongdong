@@ -14,6 +14,8 @@
     "db:migrate-disbursement": "node scripts/migrate-disbursement.js",
     "db:migrate-disbursement-statuses": "node scripts/migrate-disbursement-statuses.js",
     "db:migrate-vnpay": "node scripts/migrate-vnpay.js",
+    "db:migrate-trust": "node scripts/migrate-trust.js",
+    "trust:recompute": "node scripts/recompute-trust.js",
     "db:setup": "node scripts/setup-db.js",
     "db:seed": "node scripts/setup-db.js --seed-only",
     "db:seed:realistic": "node scripts/seed-realistic.js",

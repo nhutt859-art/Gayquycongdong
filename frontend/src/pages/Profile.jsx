@@ -96,6 +96,7 @@ export default function Profile() {
   const [projectData, setProjectData] = useState(EMPTY_PROJECTS);
   const [projectView, setProjectView] = useState('');
   const [kycSummary, setKycSummary] = useState(null);
+  const [trust, setTrust] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [emailBusy, setEmailBusy] = useState(false);
@@ -137,6 +138,16 @@ export default function Profile() {
     }
   }, []);
 
+  const loadTrust = useCallback(async () => {
+    try {
+      const data = await api.get('/me/trust');
+      setTrust(data);
+      return data;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const loadHistory = useCallback(async () => {
     setLoading(true);
     setLoadError('');
@@ -146,6 +157,7 @@ export default function Profile() {
         api.get('/me/transactions'),
         api.get('/me/projects'),
         api.get('/me'),
+        loadTrust(),
       ]);
       setPledges(pledgeData?.items || []);
       setTransactions(txData?.items || []);
@@ -160,7 +172,7 @@ export default function Profile() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadTrust]);
 
   useEffect(() => {
     loadHistory();
@@ -211,6 +223,7 @@ export default function Profile() {
         avatar_url: form.avatar_url.trim() || null,
       });
       updateCurrentUser(data.user);
+      await loadTrust();
       toast('Đã cập nhật hồ sơ.', 'success');
     } catch (err) {
       setProfileError(err.message);
@@ -461,6 +474,89 @@ export default function Profile() {
               </span>
               <span className="badge bg-slate-100">Tin cậy {Math.round(Number(currentUser.trust_score))}/100</span>
             </div>
+
+            {trust && (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold">Chi tiết điểm tín nhiệm</div>
+                  <span
+                    className={`badge ${
+                      trust.level?.tone === 'emerald'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : trust.level?.tone === 'blue'
+                          ? 'bg-blue-100 text-blue-700'
+                          : trust.level?.tone === 'amber'
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {trust.level?.label}
+                  </span>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className="h-full rounded-full bg-emerald-500"
+                    style={{ width: `${Math.max(0, Math.min(100, Number(trust.score) || 0))}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">{trust.level?.description}</p>
+                <div className="mt-3 space-y-1">
+                  {trust.breakdown
+                    ?.filter((item) => item.cap !== null || item.count > 0)
+                    .map((item) => (
+                      <div key={item.key} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-slate-600">
+                          {item.label}
+                          {item.cap !== null && <span className="text-slate-400"> ({item.applied}/{item.cap})</span>}
+                        </span>
+                        <span className={`font-semibold ${item.applied >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                          {item.applied > 0 ? '+' : ''}
+                          {item.applied}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+                {trust.actions?.some((action) => action.available && !action.automatic) && (
+                  <div className="mt-3 border-t border-slate-200 pt-2">
+                    <div className="text-xs font-semibold">Cách tăng điểm</div>
+                    <ul className="mt-1 space-y-1">
+                      {trust.actions
+                        .filter((action) => action.available && !action.automatic)
+                        .slice(0, 5)
+                        .map((action) => (
+                          <li key={action.key} className="text-xs text-slate-600">
+                            <span className="font-semibold text-emerald-700">+{action.points}</span> {action.label}
+                            {action.cap ? <span className="text-slate-400"> · {action.current}/{action.cap} điểm</span> : null}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+                {trust.events?.length > 0 && (
+                  <details className="mt-2 border-t border-slate-200 pt-2 text-xs">
+                    <summary className="cursor-pointer font-semibold text-slate-600">
+                      Lịch sử gần đây ({trust.totals?.events || trust.events.length})
+                    </summary>
+                    <ul className="mt-1 space-y-1.5">
+                      {trust.events.slice(0, 8).map((event) => (
+                        <li key={event.id} className="flex items-start justify-between gap-2">
+                          <span className="min-w-0 text-slate-500">
+                            <span className="block truncate font-medium text-slate-600">{event.label}</span>
+                            <span className="block truncate">{event.note || event.category_label}</span>
+                            <span className="block text-[10px] text-slate-400">{formatDate(event.created_at)}</span>
+                          </span>
+                          <span className={`shrink-0 font-semibold ${event.delta >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                            {event.delta > 0 ? '+' : ''}
+                            {event.delta}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+
             <div className="mt-3 text-xs text-slate-500">Thành viên từ {formatDate(currentUser.created_at)}</div>
 
             <div className="mt-4 border-t pt-3">

@@ -29,6 +29,7 @@ const TABLES = [
   'users', 'categories', 'projects', 'project_collaborators', 'rewards', 'pledges',
   'transactions', 'project_updates', 'comments', 'user_interests', 'ai_recommendations',
   'ai_predictions', 'ai_model_versions', 'fraud_flags', 'reports', 'notifications', 'follows',
+  'trust_events',
 ];
 
 try {
@@ -52,7 +53,7 @@ try {
     console.log(`⚠️  Thiếu ${missing.length} bảng: ${missing.join(', ')}`);
     console.log('   → Chạy: npm run db:setup');
   } else {
-    console.log('✅ Đủ 17 bảng theo thiết kế.');
+    console.log('✅ Đủ 18 bảng theo thiết kế.');
   }
 
   if (!missing.length) {

@@ -1,6 +1,6 @@
 -- ============================================================
 --  GÂY QUỸ CỘNG ĐỒNG + AI — SCHEMA POSTGRESQL
---  Bám theo file "Usecase Database.docx" (16 bảng)
+--  Bám theo file "Usecase Database.docx" (18 bảng, gồm trust_events)
 --  Chạy bằng: npm run db:setup
 --  LƯU Ý: file này DROP và tạo lại toàn bộ bảng trong schema public.
 -- ============================================================
@@ -8,6 +8,7 @@
 BEGIN;
 
 -- ---------- Xoá theo thứ tự an toàn ----------
+DROP TABLE IF EXISTS trust_events CASCADE;
 DROP TABLE IF EXISTS follows CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS reports CASCADE;
@@ -307,6 +308,8 @@ CREATE TABLE reports (
   reporter_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   reason      TEXT NOT NULL,
   status      report_status NOT NULL DEFAULT 'open',
+  penalty_points INTEGER CHECK (penalty_points IS NULL OR penalty_points IN (0, 10, 20, 30)),
+  reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   reviewed_at TIMESTAMPTZ
 );
@@ -335,6 +338,24 @@ CREATE TABLE follows (
 );
 
 -- ============================================================
+-- 17. trust_events — nhật ký bằng chứng điểm tín nhiệm
+-- ============================================================
+CREATE TABLE trust_events (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category     VARCHAR(20) NOT NULL,
+  delta        NUMERIC(5,2) NOT NULL CHECK (delta BETWEEN -100 AND 100 AND delta <> 0),
+  reason       VARCHAR(40) NOT NULL,
+  reference_id VARCHAR(100) NOT NULL DEFAULT 'once',
+  note         TEXT,
+  source       VARCHAR(20) NOT NULL DEFAULT 'system',
+  created_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Mỗi bằng chứng chỉ được cộng/trừ một lần cho một người dùng.
+  UNIQUE (user_id, reason, reference_id)
+);
+
+-- ============================================================
 --  INDEX
 -- ============================================================
 CREATE INDEX projects_status_idx        ON projects (status);
@@ -355,6 +376,8 @@ CREATE INDEX notifications_user_idx     ON notifications (user_id, is_read);
 CREATE INDEX follows_project_idx        ON follows (project_id);
 CREATE INDEX reports_status_idx         ON reports (status);
 CREATE INDEX fraud_flags_status_idx     ON fraud_flags (review_status);
+CREATE INDEX trust_events_user_idx      ON trust_events (user_id, created_at DESC);
+CREATE INDEX trust_events_reason_idx    ON trust_events (reason);
 CREATE INDEX project_collaborators_user_idx ON project_collaborators (user_id);
 CREATE INDEX ai_predictions_project_idx ON ai_predictions (project_id);
 CREATE INDEX ai_model_versions_active_idx ON ai_model_versions (model_key, is_active);

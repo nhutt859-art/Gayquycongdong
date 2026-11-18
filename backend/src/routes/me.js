@@ -10,6 +10,7 @@ import { canonicalVietnamesePhone } from '../lib/phone.js';
 import { notify } from '../services/notifications.js';
 import { refreshRecommendations } from '../services/ai.js';
 import { resendKycEmail, submitKyc } from '../services/kyc.js';
+import { applyTrustEvent, getTrustDetail } from '../services/trust.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -94,7 +95,28 @@ router.patch(
         returning ${USER_PUBLIC_COLUMNS}`,
       [body.full_name ?? null, body.phone ?? null, body.avatar_url ?? null, req.user.id],
     );
-    res.json({ user: mapUser(rows[0]) });
+    const user = rows[0];
+    // Chỉ cộng điểm khi hồ sơ thực sự có đủ ảnh đại diện và số điện thoại.
+    if (user.phone && user.avatar_url) {
+      const trust = await applyTrustEvent(pool, {
+        userId: user.id,
+        reason: 'profile_completed',
+        referenceId: 'once',
+        note: 'Hoàn thiện hồ sơ với ảnh đại diện và số điện thoại.',
+      });
+      user.trust_score = trust.score;
+    }
+    res.json({ user: mapUser(user) });
+  }),
+);
+
+// GET /api/me/trust — điểm tín nhiệm, phân rã theo bằng chứng và việc cần làm
+router.get(
+  '/trust',
+  asyncHandler(async (req, res) => {
+    const detail = await getTrustDetail(pool, req.user.id, { eventLimit: 50 });
+    if (!detail) throw new ApiError(404, 'Không tìm thấy tài khoản.');
+    res.json(detail);
   }),
 );
 

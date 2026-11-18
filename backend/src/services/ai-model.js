@@ -7,8 +7,9 @@ import { DECIDED_STATUS_SQL, SUCCESS_STATUS_SQL, SUCCESS_STATUSES, DECIDED_STATU
  * - Thuật toán: logistic regression + L2, kiểm định chéo 5 fold.
  * - Đầu vào gồm 6 tín hiệu có sẵn trước khi chiến dịch chạy: mục tiêu,
  *   thời lượng, số gói tri ân, độ chi tiết mô tả, tỷ lệ thành công lịch sử
- *   của danh mục và điểm tín nhiệm chủ dự án. Điểm tín nhiệm đã bao gồm KYC
- *   và lịch sử hoạt động nên mô hình không tách riêng để tránh đa cộng tuyến.
+ *   của danh mục và điểm tín nhiệm chủ dự án. Điểm tín nhiệm được tổng hợp
+ *   từ bằng chứng đã xác thực (email/KYC, thâm niên, tài trợ, chiến dịch hoàn
+ *   thành, cập nhật tiến độ) nên mô hình không tách riêng để tránh đa cộng tuyến.
  * - Không dùng dữ liệu tương lai của chính dự án đang dự đoán.
  *
  * Module này huấn luyện lại từ DB và cache trong RAM 10 phút. Với quy mô
@@ -70,7 +71,7 @@ export const FEATURES = [
   {
     key: 'owner_trust',
     label: 'Điểm tín nhiệm chủ dự án',
-    description: 'Điểm tín nhiệm được tích luỹ từ KYC, lịch sử giao dịch và phản hồi cộng đồng.',
+    description: 'Điểm tín nhiệm tổng hợp từ bằng chứng đã xác thực: email/KYC, thâm niên, tài trợ, chiến dịch hoàn thành và cập nhật tiến độ.',
     explain: ({ display, effect }) =>
       `Chủ dự án có điểm tín nhiệm ${display.owner_trust}/100, ${effect >= 0 ? 'củng cố niềm tin' : 'là điểm cần cải thiện trước khi mở rộng'}.`,
   },
@@ -507,7 +508,7 @@ export function modelCard(model) {
       description: f.description,
       coefficient: f.coefficient,
     })),
-    note: 'Mô hình dùng 6 tín hiệu có trước khi chiến dịch chạy. Điểm tín nhiệm chủ dự án đã bao gồm KYC và lịch sử hoạt động nên không tách riêng để tránh đa cộng tuyến. Chỉ số được kiểm định chéo 5 fold trên các dự án đã kết thúc.',
+    note: 'Mô hình dùng 6 tín hiệu có trước khi chiến dịch chạy. Điểm tín nhiệm chủ dự án được tổng hợp từ bằng chứng đã xác thực (email/KYC, thâm niên, tài trợ, chiến dịch hoàn thành, cập nhật tiến độ) nên không tách riêng để tránh đa cộng tuyến. Chỉ số được kiểm định chéo 5 fold trên các dự án đã kết thúc.',
   };
 }
 

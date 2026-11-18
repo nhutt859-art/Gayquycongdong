@@ -1,4 +1,4 @@
-import { pool, query } from '../db.js';
+import { pool, query, withTransaction } from '../db.js';
 import { ApiError } from '../lib/errors.js';
 import { validateDocumentImage } from '../lib/images.js';
 import { canonicalVietnamesePhone } from '../lib/phone.js';
@@ -7,6 +7,7 @@ import { expiryFromNow, hashToken, newToken } from '../lib/tokens.js';
 import { appUrl, deliveryMode, devLinkEnabled, emailLayout, escapeHtml } from './email.js';
 import { sendMail } from './mailer.js';
 import { notify } from './notifications.js';
+import { applyTrustEvent } from './trust.js';
 
 const KYC_TTL_MINUTES = Number(process.env.KYC_VERIFICATION_TTL_MINUTES || 2880);
 
@@ -272,30 +273,39 @@ export async function resendKycEmail(userId) {
 }
 
 export async function verifyKycToken(token) {
-  const { rows } = await query(
-    `update users
-        set kyc_status = 'verified',
-            kyc_verified_at = now(),
-            kyc_token_hash = null,
-            kyc_token_expires_at = null,
-            trust_score = least(100, trust_score + 5),
-            updated_at = now()
-      where kyc_token_hash = $1
-        and kyc_token_expires_at > now()
-        and kyc_status = 'pending'
-      returning ${USER_PUBLIC_COLUMNS}, kyc_verified_at`,
-    [hashToken(token)],
-  );
-  const user = rows[0];
-  if (!user) {
-    throw new ApiError(400, 'Liên kết xác thực KYC không hợp lệ, đã được sử dụng hoặc đã hết hạn. Hãy yêu cầu gửi lại từ trang cá nhân.');
-  }
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `update users
+          set kyc_status = 'verified',
+              kyc_verified_at = now(),
+              kyc_token_hash = null,
+              kyc_token_expires_at = null,
+              updated_at = now()
+        where kyc_token_hash = $1
+          and kyc_token_expires_at > now()
+          and kyc_status = 'pending'
+        returning ${USER_PUBLIC_COLUMNS}, kyc_verified_at`,
+      [hashToken(token)],
+    );
+    const user = rows[0];
+    if (!user) {
+      throw new ApiError(400, 'Liên kết xác thực KYC không hợp lệ, đã được sử dụng hoặc đã hết hạn. Hãy yêu cầu gửi lại từ trang cá nhân.');
+    }
 
-  await notify(pool, user.id, {
-    type: 'success',
-    content: 'Xác thực danh tính thành công. Bạn đã có thể tạo dự án gây quỹ.',
-    link: '/ca-nhan',
+    const trust = await applyTrustEvent(client, {
+      userId: user.id,
+      reason: 'kyc_verified',
+      referenceId: 'once',
+      note: 'Xác thực danh tính qua liên kết email KYC.',
+    });
+    user.trust_score = trust.score;
+
+    await notify(client, user.id, {
+      type: 'success',
+      content: 'Xác thực danh tính thành công. Bạn đã có thể tạo dự án gây quỹ.',
+      link: '/ca-nhan',
+    });
+
+    return mapUser(user);
   });
-
-  return mapUser(user);
 }

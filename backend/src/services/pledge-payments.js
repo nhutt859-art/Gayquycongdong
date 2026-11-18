@@ -1,6 +1,7 @@
 import { withTransaction } from '../db.js';
 import { notify } from './notifications.js';
 import { completeProjectIfFunded } from './project-completion.js';
+import { applyTrustEvent } from './trust.js';
 
 const amountInVnpayUnits = (amount) => Math.round(Number(amount)) * 100;
 
@@ -57,6 +58,14 @@ export async function finalizeVnpayPayment(txnRef, payload = {}) {
       type: 'pledge',
       content: `Bạn vừa nhận được khoản tài trợ ${Number(payment.amount).toLocaleString('vi-VN')}đ cho “${payment.project_title}”.`,
       link: `/du-an/${payment.project_id}`,
+    });
+
+    await applyTrustEvent(client, {
+      userId: payment.backer_id,
+      reason: 'pledge_paid',
+      referenceId: payment.pledge_id,
+      note: `Tài trợ ${Number(payment.amount).toLocaleString('vi-VN')}đ cho chiến dịch “${payment.project_title}”.`,
+      createdAt: new Date(),
     });
 
     const completion = await completeProjectIfFunded(client, payment.project_id, {

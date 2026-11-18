@@ -80,6 +80,11 @@ export function Admin({ tab = 'tong-quan' }) {
   const [kycDetailError, setKycDetailError] = useState('');
   const [rejectTarget, setRejectTarget] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [trustTarget, setTrustTarget] = useState(null);
+  const [trustDetail, setTrustDetail] = useState(null);
+  const [trustBusy, setTrustBusy] = useState(false);
+  const [trustError, setTrustError] = useState('');
+  const [trustForm, setTrustForm] = useState({ delta: 10, reason: '' });
   const [newCategory, setNewCategory] = useState({ name: '', description: '' });
   const [editingCategory, setEditingCategory] = useState(null);
 
@@ -187,16 +192,69 @@ export function Admin({ tab = 'tong-quan' }) {
     }
   };
 
-  const updateReport = async (report, status) => {
+  const updateReport = async (report, payload) => {
+    const body = typeof payload === 'string' ? { status: payload } : payload;
     setBusy(report.id);
     try {
-      await api.patch(`/admin/reports/${report.id}`, { status });
-      toast('Đã cập nhật trạng thái báo cáo.', 'success');
+      const data = await api.patch(`/admin/reports/${report.id}`, body);
+      toast(
+        data?.penalty_applied
+          ? data.message || 'Đã xác nhận vi phạm và trừ điểm tín nhiệm.'
+          : 'Đã cập nhật trạng thái báo cáo.',
+        'success',
+      );
       refresh();
     } catch (err) {
       toast(err.message, 'error');
     } finally {
       setBusy('');
+    }
+  };
+
+  const openTrust = async (user) => {
+    setTrustTarget(user);
+    setTrustDetail(null);
+    setTrustError('');
+    setTrustBusy(true);
+    setTrustForm({ delta: 10, reason: '' });
+    try {
+      const data = await api.get(`/admin/users/${user.id}/trust`);
+      setTrustDetail(data);
+    } catch (err) {
+      setTrustError(err.message);
+    } finally {
+      setTrustBusy(false);
+    }
+  };
+
+  const adjustTrust = async (e) => {
+    e?.preventDefault();
+    if (!trustTarget) return;
+    const delta = Number(trustForm.delta);
+    if (!Number.isInteger(delta) || delta === 0 || delta < -30 || delta > 30) {
+      toast('Mức điều chỉnh phải là số nguyên khác 0 trong khoảng -30…+30.', 'warning');
+      return;
+    }
+    if (trustForm.reason.trim().length < 5) {
+      toast('Vui lòng nhập lý do điều chỉnh tối thiểu 5 ký tự.', 'warning');
+      return;
+    }
+    setTrustBusy(true);
+    setTrustError('');
+    try {
+      const data = await api.post(`/admin/users/${trustTarget.id}/trust`, {
+        delta,
+        reason: trustForm.reason.trim(),
+      });
+      setTrustDetail(data);
+      setTrustForm({ delta: 10, reason: '' });
+      toast(data?.message || 'Đã điều chỉnh điểm tín nhiệm.', 'success');
+      refresh();
+    } catch (err) {
+      setTrustError(err.message);
+      toast(err.message, 'error');
+    } finally {
+      setTrustBusy(false);
     }
   };
 
@@ -593,6 +651,25 @@ export function Admin({ tab = 'tong-quan' }) {
                   <span className={`badge ${r.status === 'open' ? 'bg-amber-100 text-amber-700' : r.status === 'reviewed' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
                     {r.status === 'open' ? 'Mới' : r.status === 'reviewed' ? 'Đã xem' : 'Đã đóng'}
                   </span>
+                  {Number(r.penalty_points) > 0 && (
+                    <span className="badge bg-red-100 text-red-700">Đã trừ {r.penalty_points} điểm</span>
+                  )}
+                  {r.status !== 'closed' && (
+                    <select
+                      className="input !w-auto !py-1 text-xs"
+                      value=""
+                      disabled={busy === r.id}
+                      onChange={(e) => {
+                        const points = Number(e.target.value);
+                        if (points) updateReport(r, { status: 'closed', penalty_points: points });
+                      }}
+                    >
+                      <option value="">Xác nhận vi phạm…</option>
+                      <option value="10">Trừ 10 điểm</option>
+                      <option value="20">Trừ 20 điểm</option>
+                      <option value="30">Trừ 30 điểm</option>
+                    </select>
+                  )}
                   {r.status === 'open' && (
                     <>
                       <button className="link text-xs disabled:opacity-50" disabled={busy === r.id} onClick={() => updateReport(r, 'reviewed')}>Đánh dấu đã xem</button>
@@ -642,7 +719,10 @@ export function Admin({ tab = 'tong-quan' }) {
                         <button className="link mt-1 text-xs" onClick={() => openKyc(u)}>Xem giấy tờ</button>
                       )}
                     </td>
-                    <td className="p-2">{Math.round(Number(u.trust_score))}</td>
+                    <td className="p-2">
+                      <div className="font-semibold">{Math.round(Number(u.trust_score))}</div>
+                      <button className="link text-xs" onClick={() => openTrust(u)}>Lịch sử</button>
+                    </td>
                     <td className="p-2 text-xs text-slate-500">{u.owned_projects} dự án · {u.paid_pledges} tài trợ</td>
                     <td className="p-2">
                       <span className={`badge ${u.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
@@ -803,6 +883,125 @@ export function Admin({ tab = 'tong-quan' }) {
                   </a>
                 ) : (
                   <p className="mt-1 text-xs text-slate-500">Không có ảnh mặt sau.</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!trustTarget}
+        title={`Điểm tín nhiệm — ${trustTarget?.full_name || ''}`}
+        onClose={() => setTrustTarget(null)}
+        wide
+        footer={
+          <button className="btn-primary text-sm" onClick={() => setTrustTarget(null)}>
+            Đóng
+          </button>
+        }
+      >
+        {trustBusy && !trustDetail && (
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Spinner className="h-4 w-4" /> Đang tải lịch sử tín nhiệm…
+          </div>
+        )}
+        {trustError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{trustError}</div>
+        )}
+        {trustDetail && (
+          <>
+            <div className="grid gap-2 text-sm sm:grid-cols-3">
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Điểm hiện tại</div>
+                <b>{trustDetail.score}/100</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Mức tín nhiệm</div>
+                <b>{trustDetail.level?.label || '—'}</b>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2">
+                <div className="text-xs text-slate-500">Số sự kiện</div>
+                <b>{trustDetail.totals?.events || 0}</b>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {(trustDetail.breakdown || [])
+                .filter((item) => item.cap !== null || item.count > 0)
+                .map((item) => (
+                  <div key={item.key} className="rounded-xl border border-slate-200 p-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <b>{item.label}</b>
+                      <span className={item.applied >= 0 ? 'font-bold text-emerald-700' : 'font-bold text-red-600'}>
+                        {item.applied > 0 ? '+' : ''}
+                        {item.applied}
+                        {item.cap !== null ? `/${item.cap}` : ''}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-slate-400">
+                      {item.count} sự kiện
+                      {item.remaining !== null ? ` · còn ${item.remaining} điểm` : ''}
+                    </div>
+                  </div>
+                ))}
+            </div>
+
+            <form className="mt-3 rounded-xl border border-slate-200 p-3" onSubmit={adjustTrust}>
+              <div className="text-sm font-semibold">Điều chỉnh thủ công</div>
+              <p className="mt-1 text-xs text-slate-500">
+                Mọi điều chỉnh đều được lưu vào nhật ký kèm lý do và quản trị viên thực hiện.
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-[120px,1fr]">
+                <div>
+                  <label className="text-xs font-semibold">Số điểm</label>
+                  <input
+                    type="number"
+                    min="-30"
+                    max="30"
+                    step="1"
+                    className="input mt-1"
+                    value={trustForm.delta}
+                    onChange={(e) => setTrustForm({ ...trustForm, delta: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold">Lý do (bắt buộc)</label>
+                  <input
+                    className="input mt-1"
+                    placeholder="VD: Bổ sung minh chứng giải ngân đã xác minh…"
+                    value={trustForm.reason}
+                    onChange={(e) => setTrustForm({ ...trustForm, reason: e.target.value })}
+                  />
+                </div>
+              </div>
+              <button className="btn-primary mt-2 text-sm disabled:opacity-60" type="submit" disabled={trustBusy}>
+                {trustBusy ? <Spinner className="h-3 w-3" /> : 'Lưu điều chỉnh'}
+              </button>
+            </form>
+
+            <div className="mt-3">
+              <div className="text-sm font-semibold">Lịch sử tín nhiệm ({trustDetail.events?.length || 0})</div>
+              <div className="mt-1 max-h-80 space-y-1 overflow-y-auto pr-1">
+                {(trustDetail.events || []).map((event) => (
+                  <div key={event.id} className="flex items-start justify-between gap-2 rounded-lg bg-slate-50 p-2 text-xs">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-700">{event.label}</div>
+                      <div className="text-slate-500">{event.note || event.category_label}</div>
+                      <div className="text-[10px] text-slate-400">
+                        {formatDateTime(event.created_at)}
+                        {event.created_by_name ? ` · ${event.created_by_name}` : ''}
+                        {event.source ? ` · ${event.source}` : ''}
+                      </div>
+                    </div>
+                    <span className={`shrink-0 font-bold ${event.delta >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                      {event.delta > 0 ? '+' : ''}
+                      {event.delta}
+                    </span>
+                  </div>
+                ))}
+                {(trustDetail.events || []).length === 0 && (
+                  <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-500">Chưa có sự kiện tín nhiệm.</div>
                 )}
               </div>
             </div>

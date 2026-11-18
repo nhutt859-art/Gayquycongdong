@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import { z } from 'zod';
 import { pool, query, withTransaction } from '../db.js';
 import { ApiError, asyncHandler } from '../lib/errors.js';
@@ -8,6 +9,7 @@ import { requireAdmin, requireAuth } from '../middleware/auth.js';
 import { notify, notifyAdmins } from '../services/notifications.js';
 import { lockAccount, unlockAccount } from '../services/account.js';
 import { getFraudModelInfo, getModelCard } from '../services/ai.js';
+import { applyTrustEvent, getTrustDetail } from '../services/trust.js';
 import { SUCCESS_STATUS_SQL, SUCCESS_STATUSES } from '../lib/project-status.js';
 
 const router = Router();
@@ -19,8 +21,28 @@ const rejectSchema = z.object({
 const reviewSchema = z.object({
   review_status: z.enum(['confirmed', 'false_positive'], { message: 'Trạng thái duyệt không hợp lệ.' }),
 });
-const reportPatchSchema = z.object({
-  status: z.enum(['open', 'reviewed', 'closed']),
+const reportPatchSchema = z
+  .object({
+    status: z.enum(['open', 'reviewed', 'closed']).optional(),
+    penalty_points: z
+      .number()
+      .int()
+      .refine((value) => [0, 10, 20, 30].includes(value), {
+        message: 'Mức phạt phải là 0, 10, 20 hoặc 30 điểm.',
+      })
+      .optional(),
+  })
+  .refine((value) => value.status !== undefined || value.penalty_points !== undefined, {
+    message: 'Cần chọn trạng thái hoặc mức phạt cho báo cáo.',
+  });
+const trustAdjustSchema = z.object({
+  delta: z
+    .number()
+    .int()
+    .min(-30, 'Mức điều chỉnh tối thiểu là -30 điểm.')
+    .max(30, 'Mức điều chỉnh tối đa là +30 điểm.')
+    .refine((value) => value !== 0, { message: 'Mức điều chỉnh phải khác 0.' }),
+  reason: z.string().trim().min(5, 'Vui lòng nhập lý do điều chỉnh (tối thiểu 5 ký tự).').max(500),
 });
 const userStatusSchema = z.object({
   status: z.enum(['active', 'locked']),
@@ -511,6 +533,7 @@ router.patch(
     const flag = rows[0];
 
     if (body.review_status === 'confirmed') {
+      let penaltyUserId = null;
       if (flag.entity_type === 'project') {
         const p = await query(
           `update projects
@@ -521,6 +544,7 @@ router.patch(
           [flag.entity_id],
         );
         if (p.rowCount) {
+          penaltyUserId = p.rows[0].owner_id;
           await notifyProjectStakeholders(
             pool,
             { id: flag.entity_id, title: p.rows[0].title, owner_id: p.rows[0].owner_id },
@@ -534,16 +558,31 @@ router.patch(
           );
         }
       } else if (flag.entity_type === 'user') {
+        penaltyUserId = flag.entity_id;
         await lockAccount(flag.entity_id, {
           reason: 'AI xác nhận dấu hiệu gian lận.',
           actorId: req.user.id,
         });
       } else if (flag.entity_type === 'pledge') {
+        const pledge = await query('select backer_id from pledges where id = $1', [flag.entity_id]);
+        penaltyUserId = pledge.rows[0]?.backer_id || null;
         await query(`update pledges set status = 'failed' where id = $1`, [flag.entity_id]);
         await query(
           `update transactions set status = 'failed' where pledge_id = $1 and type = 'payment'`,
           [flag.entity_id],
         );
+      }
+
+      if (penaltyUserId) {
+        await applyTrustEvent(pool, {
+          userId: penaltyUserId,
+          reason: 'fraud_confirmed',
+          referenceId: `fraud-${flag.id}`,
+          note: `Gian lận được xác nhận: ${flag.reason}`,
+          source: 'admin',
+          createdBy: req.user.id,
+          createdAt: flag.reviewed_at || new Date(),
+        });
       }
     }
 
@@ -572,14 +611,57 @@ router.patch(
   '/reports/:id',
   asyncHandler(async (req, res) => {
     const body = parse(reportPatchSchema, req.body);
-    const { rows } = await query(
-      `update reports set status = $1::report_status,
-              reviewed_at = case when $1::report_status = 'open' then null else now() end
-        where id = $2 returning *`,
-      [body.status, req.params.id],
-    );
-    if (!rows.length) throw new ApiError(404, 'Không tìm thấy báo cáo.');
-    res.json({ report: rows[0], message: 'Đã cập nhật trạng thái báo cáo.' });
+
+    const result = await withTransaction(async (client) => {
+      const current = await client.query(
+        `select r.*, p.owner_id, p.title as project_title
+           from reports r
+           join projects p on p.id = r.project_id
+          where r.id = $1
+          for update of r`,
+        [req.params.id],
+      );
+      if (!current.rowCount) throw new ApiError(404, 'Không tìm thấy báo cáo.');
+      const report = current.rows[0];
+
+      const penalty = body.penalty_points && body.penalty_points > 0 ? body.penalty_points : null;
+      const status = penalty ? 'closed' : body.status || report.status;
+
+      const updated = await client.query(
+        `update reports
+            set status = $1::report_status,
+                penalty_points = coalesce($2, penalty_points),
+                reviewed_by = case when $1::report_status = 'open' then null else $3::uuid end,
+                reviewed_at = case when $1::report_status = 'open' then null else now() end
+          where id = $4
+          returning *`,
+        [status, penalty, req.user.id, req.params.id],
+      );
+
+      let trust = null;
+      if (penalty) {
+        trust = await applyTrustEvent(client, {
+          userId: report.owner_id,
+          reason: 'report_violation',
+          referenceId: report.id,
+          delta: -penalty,
+          note: `Báo cáo vi phạm “${report.reason}” đã được xác nhận cho dự án “${report.project_title}”.`,
+          source: 'admin',
+          createdBy: req.user.id,
+          upsert: true,
+        });
+      }
+
+      return { report: updated.rows[0], trust };
+    });
+
+    res.json({
+      report: result.report,
+      penalty_applied: Boolean(result.trust),
+      message: result.trust
+        ? `Đã đóng báo cáo và trừ ${Math.abs(Number(result.trust.event?.delta || 0))} điểm tín nhiệm của chủ dự án.`
+        : 'Đã cập nhật trạng thái báo cáo.',
+    });
   }),
 );
 
@@ -654,6 +736,48 @@ router.patch(
       message: result.alreadyActive
         ? 'Tài khoản đã ở trạng thái hoạt động.'
         : `Đã mở khóa tài khoản và khôi phục ${result.restoredProjects.length} dự án.`,
+    });
+  }),
+);
+
+// GET /api/admin/users/:id/trust — điểm tín nhiệm + toàn bộ nhật ký bằng chứng
+router.get(
+  '/users/:id/trust',
+  asyncHandler(async (req, res) => {
+    const detail = await getTrustDetail(pool, req.params.id, { eventLimit: 200, includeActor: true });
+    if (!detail) throw new ApiError(404, 'Không tìm thấy người dùng.');
+    res.json(detail);
+  }),
+);
+
+// POST /api/admin/users/:id/trust — điều chỉnh thủ công kèm lý do và nhật ký
+router.post(
+  '/users/:id/trust',
+  asyncHandler(async (req, res) => {
+    const body = parse(trustAdjustSchema, req.body);
+    const user = await query('select id, full_name from users where id = $1', [req.params.id]);
+    if (!user.rowCount) throw new ApiError(404, 'Không tìm thấy người dùng.');
+
+    await applyTrustEvent(pool, {
+      userId: req.params.id,
+      reason: 'admin_adjustment',
+      delta: body.delta,
+      referenceId: `admin-${crypto.randomUUID()}`,
+      note: body.reason,
+      source: 'admin',
+      createdBy: req.user.id,
+    });
+
+    await notify(pool, req.params.id, {
+      type: 'account',
+      content: `Quản trị viên đã điều chỉnh điểm tín nhiệm của bạn ${body.delta > 0 ? '+' : ''}${body.delta} điểm. Lý do: ${body.reason}`,
+      link: '/ca-nhan',
+    });
+
+    const detail = await getTrustDetail(pool, req.params.id, { eventLimit: 200, includeActor: true });
+    res.status(201).json({
+      ...detail,
+      message: `Đã điều chỉnh ${body.delta > 0 ? '+' : ''}${body.delta} điểm tín nhiệm của ${user.rows[0].full_name}.`,
     });
   }),
 );

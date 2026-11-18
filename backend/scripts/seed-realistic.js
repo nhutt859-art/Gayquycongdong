@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { trainModel, predictAllProjects } from '../src/services/ai-model.js';
 import { refreshRecommendations } from '../src/services/ai.js';
 import { closePool } from '../src/db.js';
+import { backfillTrustEvents, preserveTrustScores, recomputeTrustScores } from '../src/services/trust.js';
 
 const { Client } = pg;
 const APPLY = process.argv.includes('--apply');
@@ -1306,6 +1307,7 @@ async function main() {
 
   await client.query('BEGIN');
   await client.query(`
+    delete from trust_events;
     delete from notifications;
     delete from reports;
     delete from fraud_flags;
@@ -1426,6 +1428,15 @@ async function main() {
   await insertRows(client, 'reports', [
     'id', 'project_id', 'reporter_id', 'reason', 'status', 'created_at',
   ], reports);
+
+  // Sinh sự kiện tín nhiệm từ dữ liệu vừa tạo và giữ nguyên điểm seed.
+  console.log('Đang khởi tạo sự kiện tín nhiệm...');
+  const trustBackfill = await backfillTrustEvents(client);
+  const legacyCount = await preserveTrustScores(client);
+  await recomputeTrustScores(client);
+  console.log(
+    `Tín nhiệm: ${Object.values(trustBackfill).reduce((sum, value) => sum + value, 0)} sự kiện, ${legacyCount} điểm kế thừa.`,
+  );
 
   await client.query('COMMIT');
 

@@ -1,4 +1,5 @@
 import { notify, notifyAdmins } from './notifications.js';
+import { applyTrustEvent } from './trust.js';
 
 /** Gửi thông báo cho người theo dõi, nhà tài trợ đã thanh toán và cộng tác viên. */
 export async function notifyAudience(db, projectId, { type = 'update', content, link, excludeUserId = null }) {
@@ -112,6 +113,13 @@ export async function completeProjectIfFunded(db, projectId, { actorId = null } 
   if (!rows.length) return null;
 
   const project = rows[0];
+  await applyTrustEvent(db, {
+    userId: project.owner_id,
+    reason: 'campaign_completed',
+    referenceId: project.id,
+    note: `Hoàn thành chiến dịch “${project.title}”.`,
+    createdAt: project.completed_at || new Date(),
+  });
   const payout = await createPendingPayout(db, project);
   await announceCompletion(db, project, { actorId, payout });
   return { project, payout };

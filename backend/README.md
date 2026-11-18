@@ -5,8 +5,9 @@ API Express 5 dùng PostgreSQL thật (Neon hoặc Postgres local), truy vấn b
 ## 1. Thành phần
 
 - **Node.js 20+** (đã kiểm thử với Node 24), Express 5, `pg`, JWT, bcrypt, Zod.
-- **17 bảng** bám theo `Usecase Database.docx`:
-  `users`, `categories`, `projects`, `project_collaborators`, `rewards`, `pledges`, `transactions`, `project_updates`, `comments`, `user_interests`, `ai_recommendations`, `ai_predictions`, `ai_model_versions`, `fraud_flags`, `reports`, `notifications`, `follows`.
+- **18 bảng** bám theo `Usecase Database.docx`:
+  `users`, `categories`, `projects`, `project_collaborators`, `rewards`, `pledges`, `transactions`, `project_updates`, `comments`, `user_interests`, `ai_recommendations`, `ai_predictions`, `ai_model_versions`, `fraud_flags`, `reports`, `notifications`, `follows`, `trust_events`.
+- **Điểm tín nhiệm theo bằng chứng**: `trust_events` lưu từng sự kiện (email, KYC, hồ sơ, thâm niên, tài trợ, chiến dịch hoàn thành, cập nhật đúng hạn, vi phạm, gian lận, điều chỉnh của admin). `users.trust_score` là bản tổng hợp có trần theo danh mục và được tính lại bằng `applyTrustEvent()` / `npm run trust:recompute`.
 - Trigger `pledges_refresh_aggregates` tự cộng lại `projects.current_amount` và `rewards.quantity_claimed` mỗi khi pledge đổi trạng thái.
 - Trigger cập nhật `updated_at` cho các bảng có cột này.
 - AI gồm **logistic regression thật** cho dự đoán thành công (huấn luyện trên lịch sử dự án, kiểm định chéo 5 fold, giải thích từng tín hiệu), **gợi ý dự án** dựa trên sở thích + lịch sử tài trợ + lọc cộng tác, và **kiểm chứng gian lận** dựa trên bằng chứng độc lập. Kết quả lưu vào `ai_predictions` / `ai_recommendations` / `fraud_flags`.
@@ -16,14 +17,17 @@ API Express 5 dùng PostgreSQL thật (Neon hoặc Postgres local), truy vấn b
 ```text
 backend/
 ├── db/
-│   ├── schema.sql        # DROP + CREATE 17 bảng, index, trigger
+│   ├── schema.sql        # DROP + CREATE 18 bảng, index, trigger
 │   ├── seed.sql          # seed cơ bản cho môi trường dev
-│   └── migrate-ai.sql    # cột/bảng phục vụ AI có thể giải thích
+│   ├── migrate-ai.sql    # cột/bảng phục vụ AI có thể giải thích
+│   └── migrate-trust.sql # bảng trust_events + cột phạt báo cáo
 ├── scripts/
 │   ├── db-check.js       # kiểm tra kết nối + bảng + số dòng
-│   ├── setup-db.js       # chạy schema + seed (hoặc chỉ seed)
+│   ├── setup-db.js       # chạy schema + seed + khởi tạo điểm tín nhiệm
 │   ├── seed-realistic.js # sinh dữ liệu lịch sử thực tế hơn (--dry-run / --apply)
 │   ├── migrate-ai.js     # áp migration AI
+│   ├── migrate-trust.js  # áp migration điểm tín nhiệm
+│   ├── recompute-trust.js # backfill sự kiện + tính lại điểm tín nhiệm
 │   ├── train-ai.js       # huấn luyện mô hình dự đoán thành công
 │   ├── refresh-ai.js     # huấn luyện lại + tạo lại dự báo/gợi ý
 │   ├── verify-ai.mjs     # kiểm tra model/dự báo/gợi ý/cảnh báo đã lưu
@@ -98,7 +102,9 @@ Bạn tự tạo project và tự dán connection string vào `.env`; không c�
 
    `db:seed:realistic -- --apply` nạp 200 dự án, ~1.240 người dùng và hàng nghìn giao dịch; giữ lại tài khoản admin thật. `--dry-run` chỉ kiểm tra tính nhất quán, không ghi database.
 
-   > ⚠️ `db:setup` **DROP toàn bộ 17 bảng** trong schema `public` rồi tạo lại. Chỉ chạy trên database đồ án, không chạy trên dữ liệu thật.
+   > Nâng cấp database cũ: chạy `npm run db:migrate-trust` rồi `npm run trust:recompute -- --preserve` để tạo bằng chứng tín nhiệm và giữ nguyên điểm đang hiển thị.
+
+   > ⚠️ `db:setup` **DROP toàn bộ 18 bảng** trong schema `public` rồi tạo lại. Chỉ chạy trên database đồ án, không chạy trên dữ liệu thật.
 
 8. Chạy API:
 
@@ -232,12 +238,15 @@ Thứ tự ưu tiên khi không đặt `MAIL_PROVIDER`: `BREVO_API_KEY` → `RES
 |---|---|
 | `npm run dev` | Chạy API với `node --watch` |
 | `npm start` | Chạy API production |
-| `npm run db:check` | Kiểm tra kết nối, đủ 17 bảng, số dòng, trigger, danh sách dự án |
+| `npm run db:check` | Kiểm tra kết nối, đủ 18 bảng, số dòng, trigger, danh sách dự án |
 | `npm run db:migrate-auth` | Thêm cột xác thực email / reset mật khẩu vào DB cũ (không xoá dữ liệu) |
 | `npm run db:migrate-ai` | Thêm cột/bảng AI (predictions, recommendations, fraud evidence, model versions) vào DB cũ |
 | `npm run db:migrate-kyc-suspension` | Thêm hồ sơ KYC, trạng thái tạm ngưng dự án và cột liên quan vào DB cũ |
 | `npm run db:migrate-disbursement` | Thêm trạng thái “Đang triển khai”, ngày hoàn thành, người/ngày giải ngân; backfill dữ liệu cũ |
 | `npm run db:migrate-disbursement-statuses` | Thêm trạng thái “Chờ giải ngân” / “Đã giải ngân”; chuyển dữ liệu `successful` cũ sang trạng thái mới |
+| `npm run db:migrate-trust` | Thêm bảng `trust_events` và cột phạt báo cáo vào DB cũ (không xoá dữ liệu) |
+| `npm run trust:recompute` | Sinh sự kiện tín nhiệm từ bằng chứng sẵn có và tính lại điểm toàn bộ người dùng |
+| `npm run trust:recompute -- --preserve` | Như trên nhưng bảo toàn đúng điểm đang hiển thị bằng sự kiện `legacy_adjustment` (dùng một lần khi chuyển đổi) |
 | `npm run db:setup` | DROP + CREATE schema rồi seed cơ bản |
 | `npm run db:seed` | Chỉ nạp lại seed cơ bản (không DROP bảng) |
 | `npm run db:seed:realistic -- --dry-run` | Kiểm tra bộ dữ liệu 200 dự án trước khi ghi |

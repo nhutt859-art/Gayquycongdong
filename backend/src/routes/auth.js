@@ -12,6 +12,7 @@ import { notify } from '../services/notifications.js';
 import { isMailConfigured, sendMail } from '../services/mailer.js';
 import { appUrl, deliveryMode, devLinkEnabled, emailLayout, escapeHtml } from '../services/email.js';
 import { verifyKycToken } from '../services/kyc.js';
+import { applyTrustEvent } from '../services/trust.js';
 import { expiryFromNow, hashToken, newToken, newOtp } from '../lib/tokens.js';
 
 const router = Router();
@@ -324,6 +325,15 @@ router.post(
     const user = rows[0];
     if (!user) throw new ApiError(400, 'Liên kết xác thực không hợp lệ hoặc đã hết hạn. Hãy yêu cầu gửi lại.');
 
+    const trust = await applyTrustEvent(pool, {
+      userId: user.id,
+      reason: 'email_verified',
+      referenceId: 'once',
+      note: 'Xác thực email qua liên kết được gửi tới hộp thư.',
+      createdAt: user.email_verified_at,
+    });
+    user.trust_score = trust.score;
+
     await notify(pool, user.id, {
       type: 'success',
       content: 'Email đã được xác thực. Chào mừng bạn đến với GâyQuỹ+! Hãy chọn chủ đề quan tâm để AI gợi ý dự án phù hợp.',
@@ -486,9 +496,18 @@ router.post(
       );
     }
 
-    if (!updateResult.rows[0]) {
+    const updated = updateResult.rows[0];
+    if (!updated) {
       throw new ApiError(400, 'Mã xác nhận không đúng hoặc đã hết hạn. Vui lòng kiểm tra lại email hoặc yêu cầu mã mới.');
     }
+
+    // Đặt lại mật khẩu qua email cũng đồng nghĩa chủ hộp thư đã kiểm soát email.
+    await applyTrustEvent(pool, {
+      userId: updated.id,
+      reason: 'email_verified',
+      referenceId: 'once',
+      note: 'Xác thực email qua mã đặt lại mật khẩu.',
+    });
 
     res.json({
       ok: true,

@@ -11,6 +11,8 @@ import 'dotenv/config';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { Client } from 'pg';
+import { recomputeUserTrustScore } from '../src/services/trust.js';
+import { closePool } from '../src/db.js';
 
 const BASE = process.env.API_URL || 'http://localhost:4000/api';
 const BACKER_EMAIL = process.env.SMOKE_BACKER_EMAIL || 'minhanh.nguyen@gayquy.vn';
@@ -131,6 +133,20 @@ async function cleanup() {
         `delete from transactions where project_id = any($1::uuid[])`,
         [tempProjectIds],
       );
+      // Sự kiện tín nhiệm của nhà tài trợ không tự xoá theo pledge (reference_id
+      // là chuỗi), nên dọn trước khi xoá dự án và tính lại điểm người liên quan.
+      const removedTrust = await db.query(
+        `delete from trust_events
+          where reason = 'pledge_paid'
+            and reference_id in (
+              select id::text from pledges where project_id = any($1::uuid[])
+            )
+         returning user_id`,
+        [tempProjectIds],
+      );
+      for (const userId of new Set(removedTrust.rows.map((row) => row.user_id))) {
+        await recomputeUserTrustScore(db, userId);
+      }
       await db.query(
         `delete from fraud_flags
           where (entity_type = 'project' and entity_id = any($1::uuid[]))
@@ -162,6 +178,7 @@ async function cleanup() {
     }
   } finally {
     await db.end();
+    await closePool().catch(() => {});
   }
 }
 
@@ -900,6 +917,161 @@ async function main() {
     unlockOwner.status === 200 && unlockOwner.data?.restored_projects?.some((p) => p.id === projectA && p.status === 'active'),
     JSON.stringify(unlockOwner.data),
   );
+
+  section('Điểm tín nhiệm theo bằng chứng');
+  const guestTrust = await request('GET', '/me/trust');
+  check('Guest không xem được điểm tín nhiệm', guestTrust.status === 401);
+
+  const myTrust = await request('GET', '/me/trust', { token: backer.token });
+  const myBreakdown = myTrust.data?.breakdown || [];
+  check(
+    'GET /me/trust trả điểm và phân rã',
+    myTrust.status === 200 && Number(myTrust.data?.score) >= 0 && Number(myTrust.data?.score) <= 100,
+    JSON.stringify(myTrust.data),
+  );
+  check('Phân rã đủ 8 danh mục', myBreakdown.length === 8, `count=${myBreakdown.length}`);
+  check(
+    'Có hành động tăng điểm kèm mô tả',
+    Array.isArray(myTrust.data?.actions) &&
+      myTrust.data.actions.length >= 1 &&
+      myTrust.data.actions.every((action) => action.key && action.label && action.description && typeof action.available === 'boolean'),
+  );
+  check(
+    'Có nhật ký sự kiện tín nhiệm',
+    Array.isArray(myTrust.data?.events) && Number(myTrust.data?.totals?.events) >= 1,
+  );
+
+  const myTrustAgain = await request('GET', '/me/trust', { token: backer.token });
+  check(
+    'Đọc lại không nhân đôi sự kiện thâm niên',
+    Number(myTrustAgain.data?.totals?.events) === Number(myTrust.data?.totals?.events),
+    `lần 1=${myTrust.data?.totals?.events} lần 2=${myTrustAgain.data?.totals?.events}`,
+  );
+
+  const forbiddenTrust = await request('GET', `/admin/users/${backer.user.id}/trust`, { token: backer.token });
+  check('Backer không xem được nhật ký tín nhiệm admin', forbiddenTrust.status === 403);
+
+  const adminTrust = await request('GET', `/admin/users/${registeredUserId}/trust`, { token: admin.token });
+  check(
+    'Admin xem được lịch sử tín nhiệm người dùng',
+    adminTrust.status === 200 && adminTrust.data?.user?.id === registeredUserId,
+    JSON.stringify(adminTrust.data),
+  );
+  const scoreBeforeAdjust = Number(adminTrust.data?.score || 0);
+
+  const adjust = await request('POST', `/admin/users/${registeredUserId}/trust`, {
+    token: admin.token,
+    body: { delta: 7, reason: 'Smoke test: điều chỉnh có kiểm toán' },
+  });
+  const adjustEvent = (adjust.data?.events || []).find((event) => event.reason === 'admin_adjustment');
+  check(
+    'Admin điều chỉnh điểm kèm lý do',
+    adjust.status === 201 &&
+      Math.abs(Number(adjust.data?.score) - Math.min(100, scoreBeforeAdjust + 7)) < 0.01,
+    JSON.stringify(adjust.data),
+  );
+  check(
+    'Nhật ký ghi người điều chỉnh',
+    adjustEvent?.delta === 7 &&
+      adjustEvent?.created_by === admin.user.id &&
+      adjustEvent?.source === 'admin',
+    JSON.stringify(adjustEvent),
+  );
+
+  const reportRes = await request('POST', `/projects/${projectA}/reports`, {
+    token: backer.token,
+    body: { reason: 'Smoke test: báo cáo vi phạm để kiểm tra điểm tín nhiệm' },
+  });
+  check('Gửi báo cáo vi phạm', reportRes.status === 201, JSON.stringify(reportRes.data));
+  const duplicateReport = await request('POST', `/projects/${projectA}/reports`, {
+    token: backer.token,
+    body: { reason: 'Smoke test: báo cáo trùng đang chờ xử lý' },
+  });
+  check('Chặn báo cáo trùng đang mở', duplicateReport.status === 409, JSON.stringify(duplicateReport.data));
+
+  const scoreBeforePenalty = Number(adjust.data?.score || 0);
+  const penalty10 = await request('PATCH', `/admin/reports/${reportRes.data?.report?.id}`, {
+    token: admin.token,
+    body: { penalty_points: 10 },
+  });
+  const trustAfterPenalty10 = await request('GET', `/admin/users/${registeredUserId}/trust`, { token: admin.token });
+  const event10 = (trustAfterPenalty10.data?.events || []).find(
+    (event) => event.reason === 'report_violation' && event.reference_id === reportRes.data?.report?.id,
+  );
+  check(
+    'Xác nhận vi phạm trừ 10 điểm',
+    penalty10.status === 200 &&
+      penalty10.data?.penalty_applied === true &&
+      Number(penalty10.data?.report?.penalty_points) === 10,
+    JSON.stringify(penalty10.data),
+  );
+  check(
+    'Điểm tín nhiệm giảm đúng 10',
+    Math.abs(Number(trustAfterPenalty10.data?.score) - Math.max(0, scoreBeforePenalty - 10)) < 0.01,
+    `before=${scoreBeforePenalty} after=${trustAfterPenalty10.data?.score}`,
+  );
+  check(
+    'Sự kiện vi phạm có tham chiếu báo cáo',
+    event10?.delta === -10 && event10?.source === 'admin',
+    JSON.stringify(event10),
+  );
+
+  const penalty20 = await request('PATCH', `/admin/reports/${reportRes.data?.report?.id}`, {
+    token: admin.token,
+    body: { penalty_points: 20 },
+  });
+  const trustAfterPenalty20 = await request('GET', `/admin/users/${registeredUserId}/trust`, { token: admin.token });
+  const violationEvents = (trustAfterPenalty20.data?.events || []).filter(
+    (event) => event.reason === 'report_violation' && event.reference_id === reportRes.data?.report?.id,
+  );
+  check(
+    'Đổi mức phạt cập nhật đúng một sự kiện',
+    penalty20.status === 200 && violationEvents.length === 1 && violationEvents[0].delta === -20,
+    JSON.stringify(violationEvents),
+  );
+  check(
+    'Điểm tín nhiệm phản ánh mức phạt mới',
+    Math.abs(Number(trustAfterPenalty20.data?.score) - Math.max(0, scoreBeforePenalty - 20)) < 0.01,
+    `expected=${Math.max(0, scoreBeforePenalty - 20)} actual=${trustAfterPenalty20.data?.score}`,
+  );
+
+  if (db) {
+    const flagRows = await db.query(
+      `insert into fraud_flags (entity_type, entity_id, risk_score, reason, evidence)
+       values ('user', $1, 92, 'Smoke test: gian lận có xác nhận', '{"signals":[]}'::jsonb)
+       returning id`,
+      [registeredUserId],
+    );
+    const confirmed = await request('PATCH', `/admin/fraud-flags/${flagRows.rows[0].id}`, {
+      token: admin.token,
+      body: { review_status: 'confirmed' },
+    });
+    const trustAfterFraud = await request('GET', `/admin/users/${registeredUserId}/trust`, { token: admin.token });
+    const fraudEvent = (trustAfterFraud.data?.events || []).find((event) => event.reason === 'fraud_confirmed');
+    check(
+      'Xác nhận gian lận khóa tài khoản',
+      confirmed.status === 200 && trustAfterFraud.data?.user?.status === 'locked',
+      JSON.stringify(confirmed.data),
+    );
+    check(
+      'Xác nhận gian lận trừ 30 điểm',
+      fraudEvent?.delta === -30 &&
+        Math.abs(
+          Number(trustAfterFraud.data?.score) - Math.max(0, Number(trustAfterPenalty20.data?.score) - 30),
+        ) < 0.01,
+      `score=${trustAfterFraud.data?.score} event=${JSON.stringify(fraudEvent)}`,
+    );
+    const unlockAfterFraud = await request('PATCH', `/admin/users/${registeredUserId}/status`, {
+      token: admin.token,
+      body: { status: 'active' },
+    });
+    check(
+      'Mở khóa sau khi xác nhận gian lận',
+      unlockAfterFraud.status === 200 && unlockAfterFraud.data?.user?.status === 'active',
+    );
+  } else {
+    check('Kiểm tra án phạt gian lận', false, 'Thiếu DATABASE_URL để tạo cảnh báo tạm.');
+  }
 
   section('Tổng kết');
   console.log(`\n✅ ${passed} passed   ❌ ${failed} failed`);

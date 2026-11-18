@@ -17,6 +17,7 @@ import {
   vnDate,
 } from '../services/project-completion.js';
 import { buildPaymentUrl, isVnpayMock } from '../services/vnpay.js';
+import { applyTrustEvent } from '../services/trust.js';
 import { SUCCESS_STATUSES, SUCCESS_STATUS_SQL } from '../lib/project-status.js';
 import {
   fraudScoreForPledge,
@@ -759,6 +760,13 @@ router.post(
     };
 
     if (outcome === 'successful') {
+      await applyTrustEvent(pool, {
+        userId: project.owner_id,
+        reason: 'campaign_completed',
+        referenceId: project.id,
+        note: `Chủ dự án đánh dấu hoàn thành chiến dịch “${project.title}”.`,
+        createdAt: project.completed_at || new Date(),
+      });
       const payout = await createPendingPayout(pool, project);
       const amountText = Number(project.current_amount).toLocaleString('vi-VN');
       const payoutText = payout
@@ -857,10 +865,24 @@ router.post(
       [req.params.id, req.user.id, body.title, body.content, JSON.stringify(imageUrls)],
     );
 
-    const project = await query('select title from projects where id = $1', [req.params.id]);
+    const project = await query(
+      `select title, owner_id, status, (current_date <= end_date) as on_time
+         from projects where id = $1`,
+      [req.params.id],
+    );
+    const projectRow = project.rows[0];
+    if (projectRow.on_time && ['active', ...SUCCESS_STATUSES].includes(projectRow.status)) {
+      await applyTrustEvent(pool, {
+        userId: projectRow.owner_id,
+        reason: 'progress_update_on_time',
+        referenceId: rows[0].id,
+        note: `Cập nhật tiến độ “${body.title}” được đăng đúng hạn.`,
+        createdAt: rows[0].created_at,
+      });
+    }
     await notifyAudience(pool, req.params.id, {
       type: 'update',
-      content: `Dự án “${project.rows[0].title}” vừa có bản tin mới: ${body.title}.`,
+      content: `Dự án “${projectRow.title}” vừa có bản tin mới: ${body.title}.`,
       link: `/du-an/${req.params.id}`,
       excludeUserId: req.user.id,
     });
