@@ -82,7 +82,7 @@ function askImageSource(title, onCamera, onLibrary, onCancel) {
 }
 
 /**
- * Ảnh giấy tờ KYC: chấp nhận ảnh dọc lẫn ảnh ngang, chỉ cần đủ độ phân giải để OCR.
+ * Ảnh giấy tờ KYC: chấp nhận ảnh dọc lẫn ảnh ngang, chỉ cần đủ độ phân giải tối thiểu.
  * Trả về data URL JPEG hoặc null nếu người dùng hủy.
  */
 export function pickDocumentImage(label) {

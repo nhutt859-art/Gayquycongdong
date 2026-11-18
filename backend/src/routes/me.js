@@ -98,7 +98,7 @@ router.patch(
   }),
 );
 
-// POST /api/me/kyc — gửi hồ sơ CCCD/hộ chiếu, OCR đối chiếu và gửi email xác thực
+// POST /api/me/kyc — gửi hồ sơ CCCD/hộ chiếu và gửi email xác thực
 router.post(
   '/kyc',
   rateLimit({ name: 'kyc-submit-user', max: 10, key: (req) => req.user?.id }),

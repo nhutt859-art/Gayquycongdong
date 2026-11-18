@@ -9,8 +9,3 @@ npm-debug.log*
 .vercel
 .env*
 !.env.example
-
-# OCR (Tesseract) cache and temporary training data
-eng.traineddata
-gayquy-ocr/
-ocr-cache/

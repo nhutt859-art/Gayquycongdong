@@ -74,7 +74,7 @@ CREATE TABLE users (
   reset_token_hash               CHAR(64),
   reset_token_expires_at         TIMESTAMPTZ,
   token_version                  INTEGER NOT NULL DEFAULT 0,
-  -- Hồ sơ định danh (CCCD/hộ chiếu) + kết quả OCR
+  -- Hồ sơ định danh (CCCD/hộ chiếu) + thông tin người dùng nhập
   kyc_document_type              VARCHAR(12),
   kyc_document_number            VARCHAR(30),
   kyc_full_name                  VARCHAR(120),

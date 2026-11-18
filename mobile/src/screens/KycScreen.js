@@ -434,7 +434,7 @@ export default function KycScreen({ navigation }) {
         />
         {busy ? (
           <Text style={{ fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 6 }}>
-            Hệ thống đang đối chiếu OCR ảnh giấy tờ, quá trình này có thể mất 10–30 giây…
+            Đang gửi hồ sơ xác thực…
           </Text>
         ) : null}
       </Card>

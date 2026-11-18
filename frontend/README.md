@@ -42,7 +42,7 @@ Mật khẩu chung: **`12345678`**
 | `thu.ha.le@gayquy.vn` | Nhà tài trợ, KYC đã xác thực |
 | `hoang.nam.tran@gayquy.vn` | Chủ dự án, KYC đã xác thực |
 
-Bộ dữ liệu thực tế hơn được nạp bằng `npm run db:seed:realistic -- --apply` ở backend. Tài khoản admin production dùng tài khoản thật, không đưa mật khẩu vào repository. Tài khoản mới đăng ký sẽ được chuyển qua chọn sở thích; KYC được gửi từ trang cá nhân với ảnh CCCD/hộ chiếu, đối chiếu OCR và xác thực qua email liên hệ.
+Bộ dữ liệu thực tế hơn được nạp bằng `npm run db:seed:realistic -- --apply` ở backend. Tài khoản admin production dùng tài khoản thật, không đưa mật khẩu vào repository. Tài khoản mới đăng ký sẽ được chuyển qua chọn sở thích; KYC được gửi từ trang cá nhân với ảnh CCCD/hộ chiếu, thông tin nhập tay và xác thực qua email liên hệ.
 
 ## 4. Cấu trúc
 
@@ -100,7 +100,7 @@ frontend/
 - Gặp `401`, app xoá phiên và phát sự kiện để điều hướng về đăng nhập.
 - Đăng xuất chỉ xoá token phía client (JWT stateless); API `/auth/logout` vẫn tồn tại nhưng không cần gọi.
 - Sau khi tài trợ/KYC, app refresh lại session + thông báo để số liệu đúng ngay.
-- Thanh toán được ghi nhận qua luồng nội bộ của hệ thống. KYC dùng OCR thật với ảnh CCCD/hộ chiếu và xác thực qua email liên hệ. AI dùng logistic regression được huấn luyện và kiểm định chéo 5 fold cho dự đoán thành công, gợi ý dựa trên hành vi và kiểm chứng gian lận dựa trên bằng chứng; xem `backend/README.md` và `README.md` ở thư mục gốc.
+- Thanh toán được ghi nhận qua luồng nội bộ của hệ thống. KYC dùng ảnh CCCD/hộ chiếu do người dùng tải lên, thông tin nhập tay và xác thực qua email liên hệ. AI dùng logistic regression được huấn luyện và kiểm định chéo 5 fold cho dự đoán thành công, gợi ý dựa trên hành vi và kiểm chứng gian lận dựa trên bằng chứng; xem `backend/README.md` và `README.md` ở thư mục gốc.
 - Các trang dự án hiển thị đóng góp của từng tín hiệu dự đoán; trang chủ hiển thị lý do gợi ý và cách tính điểm; trang quản lý/admin hiển thị bằng chứng gian lận và model card.
 
 ## 7. Build & kiểm tra

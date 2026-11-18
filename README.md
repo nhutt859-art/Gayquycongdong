@@ -196,7 +196,7 @@ Tài khoản quản trị production dùng tài khoản thật đã được gi�
 - Trang chủ, khám phá, tìm kiếm/lọc/sắp xếp dự án.
 - Xem chi tiết, cập nhật, bình luận & trả lời, theo dõi, báo cáo vi phạm.
 - Tài trợ dự án, nhận gói tri ân, xem lịch sử đóng góp và trạng thái giao dịch.
-- Hồ sơ; KYC bằng CCCD/hộ chiếu với đối chiếu OCR, chống trùng số giấy tờ và xác thực qua email; chọn sở thích, nhận gợi ý có giải thích, thông báo.
+- Hồ sơ; KYC bằng CCCD/hộ chiếu với thông tin nhập tay và ảnh giấy tờ, chống trùng số giấy tờ và xác thực qua email; chọn sở thích, nhận gợi ý có giải thích, thông báo.
 
 **Chủ dự án / Cộng tác viên**
 - Tạo dự án 3 bước sau KYC; tự động nâng backer → owner.
@@ -249,7 +249,7 @@ GitHub Actions workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) c
 
 ## Phạm vi & lưu ý
 
-- Thanh toán được ghi nhận qua luồng nội bộ của hệ thống, không kết nối cổng thanh toán bên ngoài. KYC dùng OCR thật với ảnh CCCD/hộ chiếu, đối chiếu thông tin, chống trùng số giấy tờ và xác thực qua email liên hệ.
+- Thanh toán được ghi nhận qua luồng nội bộ của hệ thống, không kết nối cổng thanh toán bên ngoài. KYC dùng ảnh CCCD/hộ chiếu do người dùng tải lên, thông tin do người dùng nhập tay, chống trùng số giấy tờ và xác thực qua email liên hệ.
 - Dữ liệu lịch sử là **dữ liệu tổng hợp có kiểm soát**, không phải dữ liệu người dùng thật. Mô hình học trên dữ liệu này nên chỉ dùng để minh hoạ quy trình, không dùng để quyết định thật.
 - Mô hình dự đoán có AUC 0.704 — tốt hơn baseline nhưng chưa đủ mạnh để thay thế đánh giá của con người. Kết quả hiển thị kèm độ tin cậy và lý do.
 - Email xác thực / đặt lại mật khẩu dùng Brevo/Resend/SendGrid HTTP API hoặc SMTP (Nodemailer). Khi chưa cấu hình email trong `backend/.env`, nội dung được in ra console backend để test.

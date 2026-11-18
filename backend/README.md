@@ -315,7 +315,7 @@ Bộ dữ liệu `db:seed:realistic -- --apply` tạo 200 dự án với đủ t
 ## 9. Lưu ý phạm vi đồ án
 
 - Thanh toán được ghi nhận qua luồng nội bộ của hệ thống (không kết nối cổng thanh toán bên ngoài); mỗi giao dịch đều được chấm điểm rủi ro và lưu bằng chứng để quản trị viên xác minh.
-- KYC sử dụng OCR thật (Tesseract) trên ảnh CCCD/hộ chiếu, đối chiếu số giấy tờ, họ tên và ngày sinh; chặn trùng số giấy tờ giữa các tài khoản và xác thực qua email liên hệ.
+- KYC lưu ảnh CCCD/hộ chiếu do người dùng tải lên cùng thông tin nhập tay; chặn trùng số giấy tờ giữa các tài khoản và xác thực qua email liên hệ.
 - Dữ liệu lịch sử là dữ liệu tổng hợp có kiểm soát, không phải người dùng thật. Mô hình logistic regression học trên dữ liệu này (AUC 0.704, kiểm định chéo 5 fold) chỉ dùng để minh hoạ quy trình ra quyết định.
 - Mô hình gian lận dựa trên bằng chứng độc lập và ngưỡng cảnh báo 60%; admin vẫn phải xác minh từng trường hợp, hệ thống không tự kết luận.
 - JWT lưu `localStorage`; đăng xuất chỉ xoá token phía client.

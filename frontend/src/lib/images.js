@@ -76,7 +76,7 @@ export async function readImageFile(file, { maxBytes = 2 * 1024 * 1024, maxWidth
 }
 
 /**
- * Ảnh giấy tờ KYC: chấp nhận ảnh dọc lẫn ảnh ngang, chỉ cần đủ độ phân giải để OCR.
+ * Ảnh giấy tờ KYC: chấp nhận ảnh dọc lẫn ảnh ngang, chỉ cần đủ độ phân giải tối thiểu.
  */
 export async function readDocumentImage(file, label) {
   const result = await readImageFile(file, {

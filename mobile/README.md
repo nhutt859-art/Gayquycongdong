@@ -45,7 +45,7 @@ Không dùng `localhost` trên điện thoại thật vì điện thoại không
 - **Đăng nhập / Đăng ký**: mật khẩu tối thiểu 8 ký tự, đăng ký báo thành công hoặc email đã tồn tại
 - **Quên mật khẩu**: gửi OTP qua email, xác nhận mã rồi chuyển sang màn hình đặt mật khẩu mới
 - **Chọn chủ đề**: lưu sở thích để AI cá nhân hoá gợi ý
-- **Cá nhân**: hồ sơ, KYC bằng CCCD/hộ chiếu (OCR + xác thực email), lịch sử tài trợ/giao dịch, quản lý sở thích
+- **Cá nhân**: hồ sơ, KYC bằng CCCD/hộ chiếu (nhập thông tin + xác thực email), lịch sử tài trợ/giao dịch, quản lý sở thích
 - **Thông báo**: lọc chưa đọc, đánh dấu đã đọc, xoá
 - **Dự án của tôi**: dự án sở hữu, cộng tác, lời mời
 - **Tạo dự án**: 3 bước, AI ước tính thành công, gửi duyệt

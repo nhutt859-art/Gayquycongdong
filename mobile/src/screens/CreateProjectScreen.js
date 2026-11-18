@@ -193,7 +193,7 @@ export default function CreateProjectScreen({ navigation, route }) {
           <Text style={{ fontSize: 42 }}>🪪</Text>
           <Text style={{ fontSize: 18, fontWeight: '900', marginTop: 8 }}>Cần xác thực danh tính</Text>
           <Text style={{ fontSize: 12, color: colors.muted, textAlign: 'center', marginTop: 5, lineHeight: 18 }}>
-            Bạn cần xác thực danh tính bằng CCCD hoặc hộ chiếu trước khi tạo dự án gây quỹ. Hồ sơ được đối chiếu OCR và xác
+            Bạn cần xác thực danh tính bằng CCCD hoặc hộ chiếu trước khi tạo dự án gây quỹ. Hồ sơ được xác
             thực qua email liên hệ.
           </Text>
           {currentUser.kyc_status === 'pending' ? (

@@ -1,6 +1,3 @@
-import os from 'node:os';
-import path from 'node:path';
-import { createWorker } from 'tesseract.js';
 import { pool, query } from '../db.js';
 import { ApiError } from '../lib/errors.js';
 import { validateDocumentImage } from '../lib/images.js';
@@ -12,22 +9,11 @@ import { sendMail } from './mailer.js';
 import { notify } from './notifications.js';
 
 const KYC_TTL_MINUTES = Number(process.env.KYC_VERIFICATION_TTL_MINUTES || 2880);
-const OCR_TIMEOUT_MS = Number(process.env.KYC_OCR_TIMEOUT_MS || 60000);
 
 export const KYC_DOCUMENT_TYPES = {
   cccd: {
     label: 'Căn cước công dân',
     short: 'CCCD',
-    keywords: [
-      'CAN CUOC CONG DAN',
-      'CAN CUOC',
-      'CONG DAN',
-      'SO DINH DANH CA NHAN',
-      'SO DINH DANH',
-      'CITIZEN IDENTITY CARD',
-      'IDENTITY CARD',
-      'CCCD',
-    ],
     numberPattern: /^\d{12}$/,
     numberHint: 'Số CCCD phải gồm đúng 12 chữ số.',
     backRequired: true,
@@ -35,240 +21,14 @@ export const KYC_DOCUMENT_TYPES = {
   passport: {
     label: 'Hộ chiếu',
     short: 'Hộ chiếu',
-    keywords: ['PASSPORT', 'HO CHIEU', 'SO THONG HANH'],
     numberPattern: /^(?:[A-Z][0-9]{7,8}|[0-9]{8,9})$/,
     numberHint: 'Số hộ chiếu gồm 8–9 ký tự (ví dụ B1234567).',
     backRequired: false,
   },
 };
 
-/** Bỏ dấu tiếng Việt + chuyển về chữ hoa để so khớp OCR. */
-export function normalizeOcrText(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .replace(/[^A-Za-z0-9\s/.-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toUpperCase();
-}
-
 function compact(value) {
   return String(value || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-}
-
-/** OCR hay nhầm một số ký tự; quy đổi khi đọc ngày sinh dạng số. */
-function ocrDigits(value) {
-  return compact(value).replace(/[OQDG]/g, '0').replace(/[IL]/g, '1').replace(/S/g, '5').replace(/B/g, '8').replace(/Z/g, '2');
-}
-
-function pad2(value) {
-  return String(value).padStart(2, '0');
-}
-
-function dobMatches(text, dob) {
-  const wanted = String(dob || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(wanted)) return false;
-  return rawLines(text).some((line) => datesInLine(line).includes(wanted));
-}
-
-function nameMatches(text, fullName) {
-  const tokens = normalizeOcrText(fullName)
-    .split(' ')
-    .filter((token) => token.length >= 2);
-  if (!tokens.length) return false;
-  const haystack = normalizeOcrText(text);
-  const matched = tokens.filter((token) => haystack.includes(token)).length;
-  // Tên 1–2 từ phải khớp đủ; tên dài cho phép OCR đọc thiếu tối đa 40% số từ.
-  if (tokens.length <= 2) return matched === tokens.length;
-  return matched >= Math.ceil(tokens.length * 0.6);
-}
-
-function detectDocumentType(text) {
-  const haystack = normalizeOcrText(text);
-  const found = [];
-  for (const [type, meta] of Object.entries(KYC_DOCUMENT_TYPES)) {
-    if (meta.keywords.some((keyword) => haystack.includes(keyword))) found.push(type);
-  }
-  return found;
-}
-
-/**
- * Chỉ coi là sai loại giấy tờ khi OCR đọc rõ ràng một loại khác.
- * Nhiều ảnh CCCD thật bị lóa/nghiêng nên không đọc được dòng tiêu đề;
- * khi đó các bước đối chiếu họ tên, ngày sinh bên dưới mới quyết định.
- */
-function isWrongDocumentType(detected, documentType) {
-  return detected.length > 0 && !detected.includes(documentType);
-}
-
-function assertDocumentContent(text, data) {
-  if (!text || normalizeOcrText(text).length < 12) {
-    throw new ApiError(422, 'Không đọc được thông tin trên ảnh giấy tờ. Vui lòng chụp lại ảnh rõ nét, đủ sáng và không bị che khuất.', {
-      code: 'KYC_OCR_UNREADABLE',
-    });
-  }
-
-  const detected = detectDocumentType(text);
-  const meta = KYC_DOCUMENT_TYPES[data.document_type];
-  if (isWrongDocumentType(detected, data.document_type)) {
-    const other = detected.map((type) => KYC_DOCUMENT_TYPES[type].label).join(', ');
-    throw new ApiError(
-      422,
-      `Ảnh tải lên là ${other}, không phải ${meta.label}. Vui lòng chọn đúng loại giấy tờ.`,
-      { code: 'KYC_DOCUMENT_TYPE_MISMATCH', detected },
-    );
-  }
-
-  if (!nameMatches(text, data.full_name)) {
-    throw new ApiError(422, 'Họ tên trên ảnh giấy tờ không khớp với họ tên bạn nhập. Vui lòng kiểm tra lại.', {
-      code: 'KYC_NAME_MISMATCH',
-      field: 'full_name',
-    });
-  }
-
-  if (!dobMatches(text, data.dob)) {
-    throw new ApiError(422, 'Ngày sinh trên ảnh giấy tờ không khớp với ngày sinh bạn nhập (định dạng ngày/tháng/năm).', {
-      code: 'KYC_DOB_MISMATCH',
-      field: 'dob',
-    });
-  }
-}
-
-// ------------------------------------------------------------
-// Tiện ích đọc ngày sinh từ văn bản OCR khi đối chiếu hồ sơ.
-// ------------------------------------------------------------
-function rawLines(text) {
-  return String(text || '')
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-}
-
-function dateFromParts(day, month, year) {
-  const d = Number(day);
-  const m = Number(month);
-  const y = Number(year);
-  const currentYear = new Date().getUTCFullYear();
-  if (!Number.isInteger(d) || !Number.isInteger(m) || !Number.isInteger(y)) return null;
-  if (y < 1900 || y > currentYear || m < 1 || m > 12 || d < 1 || d > 31) return null;
-  const date = new Date(Date.UTC(y, m - 1, d));
-  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
-  return `${y}-${pad2(m)}-${pad2(d)}`;
-}
-
-const OCR_DATE_CHARS = '[0-9OQDGILSZB]';
-
-function datesInLine(line) {
-  const normalized = normalizeOcrText(line);
-  const dates = [];
-  const pattern = new RegExp(
-    `(${OCR_DATE_CHARS}{1,4})[/.-](${OCR_DATE_CHARS}{1,2})[/.-](${OCR_DATE_CHARS}{2,4})`,
-    'g',
-  );
-  for (const match of normalized.matchAll(pattern)) {
-    const parts = [match[1], match[2], match[3]].map((part) => ocrDigits(part));
-    // OCR hay nhầm O/Q/D -> 0, I/L -> 1, S -> 5, B -> 8, Z -> 2 trong ngày sinh.
-    const date =
-      parts[0].length === 4
-        ? dateFromParts(parts[2], parts[1], parts[0])
-        : parts[2].length === 4
-          ? dateFromParts(parts[0], parts[1], parts[2])
-          : null;
-    if (date) dates.push(date);
-  }
-  return dates;
-}
-
-// ------------------------------------------------------------
-// OCR: một worker dùng chung, xếp hàng tuần tự để không ngốn RAM.
-// ------------------------------------------------------------
-let workerPromise = null;
-let queue = Promise.resolve();
-const cachePath = path.join(os.tmpdir(), 'gayquy-ocr');
-
-async function createKycWorker() {
-  try {
-    const worker = await createWorker('vie+eng', 1, {
-      cachePath,
-      logger: () => {},
-    });
-    // PSM 6 đọc giấy tờ dạng khối chữ tốt hơn chế độ tự động trên ảnh chụp card.
-    await worker.setParameters({
-      tessedit_pageseg_mode: '6',
-      preserve_interword_spaces: '1',
-    });
-    return worker;
-  } catch (err) {
-    console.error('[kyc] Không tải được gói tiếng Việt, dùng eng:', err.message);
-    const worker = await createWorker('eng', 1, {
-      cachePath,
-      logger: () => {},
-    });
-    await worker.setParameters({
-      tessedit_pageseg_mode: '6',
-      preserve_interword_spaces: '1',
-    });
-    return worker;
-  }
-}
-
-async function getWorker() {
-  if (!workerPromise) {
-    workerPromise = createKycWorker().catch((err) => {
-      workerPromise = null;
-      throw err;
-    });
-  }
-  return workerPromise;
-}
-
-async function resetWorker() {
-  const current = workerPromise;
-  workerPromise = null;
-  if (current) {
-    try {
-      const worker = await current;
-      await worker.terminate();
-    } catch {
-      // worker đã lỗi, bỏ qua
-    }
-  }
-}
-
-function withTimeout(promise, ms, label) {
-  let timer;
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(label)), ms);
-    }),
-  ]).finally(() => clearTimeout(timer));
-}
-
-async function recognizeText(buffer) {
-  const run = queue.then(async () => {
-    try {
-      const worker = await getWorker();
-      const result = await withTimeout(worker.recognize(buffer), OCR_TIMEOUT_MS, 'KYC_OCR_TIMEOUT');
-      return result?.data?.text || '';
-    } catch (err) {
-      await resetWorker();
-      if (err?.message === 'KYC_OCR_TIMEOUT') {
-        throw new ApiError(422, 'Quá thời gian đọc ảnh giấy tờ. Vui lòng thử lại với ảnh nhỏ hơn hoặc rõ nét hơn.', {
-          code: 'KYC_OCR_TIMEOUT',
-        });
-      }
-      console.error('[kyc] OCR lỗi:', err.message);
-      throw new ApiError(422, 'Không thể đọc ảnh giấy tờ. Vui lòng thử lại với ảnh JPEG/PNG rõ nét.', {
-        code: 'KYC_OCR_FAILED',
-      });
-    }
-  });
-  queue = run.catch(() => {});
-  return run;
 }
 
 // ------------------------------------------------------------
@@ -418,22 +178,14 @@ export async function submitKyc(userId, input) {
     });
   }
 
-  // Kiểm tra ảnh trước khi OCR để từ chối sớm ảnh sai định dạng/kích thước.
-  const front = validateDocumentImage(input.front_image, 'Ảnh mặt trước giấy tờ');
+  // Chỉ kiểm tra ảnh đúng định dạng/kích thước; không đọc hay đối chiếu nội dung ảnh.
+  validateDocumentImage(input.front_image, 'Ảnh mặt trước giấy tờ');
   let back = null;
   if (input.back_image) {
     back = validateDocumentImage(input.back_image, 'Ảnh mặt sau giấy tờ');
   } else if (meta.backRequired) {
     throw new ApiError(400, 'Vui lòng tải ảnh mặt sau của CCCD.');
   }
-
-  const ocrText = await recognizeText(front.buffer);
-  assertDocumentContent(ocrText, {
-    document_type: documentType,
-    document_number: documentNumber,
-    full_name: fullName,
-    dob,
-  });
 
   let updated;
   try {

@@ -61,5 +61,5 @@ Mật khẩu chung cho tài khoản thử nghiệm: `12345678`. Chi tiết cấu
 
 - **AI** dùng logistic regression thật cho dự đoán thành công (6 tín hiệu, kiểm định chéo 5 fold, lưu đóng góp từng tín hiệu), gợi ý dự án dựa trên sở thích + lịch sử tài trợ + lọc cộng tác, và kiểm chứng gian lận dựa trên bằng chứng độc lập. Kết quả lưu vào `ai_predictions`/`ai_recommendations`/`fraud_flags`.
 - **Thanh toán** được ghi nhận qua luồng nội bộ: tạo `pledges` + `transactions` và chấm điểm rủi ro trước khi xác nhận.
-- **KYC** gửi ảnh CCCD/hộ chiếu, đối chiếu OCR số giấy tờ/họ tên/ngày sinh, chống trùng số giấy tờ và xác thực qua email liên hệ.
+- **KYC** gửi ảnh CCCD/hộ chiếu và nhập thông tin định danh, chống trùng số giấy tờ và xác thực qua email liên hệ.
 - **JWT** lưu `localStorage`; logout chỉ xoá token phía client.

@@ -77,7 +77,7 @@ export function imageDimensions(image) {
 }
 
 /**
- * Kiểm tra ảnh giấy tờ: đúng JPEG/PNG và đủ độ phân giải để OCR.
+ * Kiểm tra ảnh giấy tờ: đúng JPEG/PNG và đủ độ phân giải tối thiểu.
  * Chấp nhận cả ảnh dọc lẫn ảnh ngang vì người dùng thường chụp bằng điện thoại.
  * Chỉ kiểm tra tỷ lệ khung khi nơi gọi truyền tường minh `options.aspect`.
  */

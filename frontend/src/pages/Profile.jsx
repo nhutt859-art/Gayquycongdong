@@ -469,8 +469,8 @@ export default function Profile() {
                 {verified
                   ? 'Tài khoản đã xác thực, đủ điều kiện tạo dự án gây quỹ.'
                   : pending
-                    ? 'Hồ sơ CCCD/hộ chiếu đã được tiếp nhận. Hệ thống đã đối chiếu OCR và đang chờ bạn xác thực email để hoàn tất.'
-                    : 'Xác thực bằng CCCD hoặc hộ chiếu: ảnh giấy tờ được đối chiếu OCR, kiểm tra trùng số giấy tờ và gửi email xác thực tới bạn.'}
+                    ? 'Hồ sơ CCCD/hộ chiếu đã được tiếp nhận và đang chờ bạn xác thực email để hoàn tất.'
+                    : 'Xác thực bằng CCCD hoặc hộ chiếu: nhập thông tin, tải ảnh giấy tờ, kiểm tra trùng số giấy tờ và gửi email xác thực tới bạn.'}
               </p>
               {verified && kycSummary?.verified_at && (
                 <p className="mt-1 text-xs text-emerald-700">Đã xác thực ngày {formatDate(kycSummary.verified_at)}.</p>
@@ -699,7 +699,7 @@ export default function Profile() {
               disabled={kycBusy || !!kycImageBusy}
             >
               {kycBusy ? (
-                <><Spinner className="mr-1 h-3 w-3" /> Đang đối chiếu OCR…</>
+                <><Spinner className="mr-1 h-3 w-3" /> Đang gửi hồ sơ…</>
               ) : (
                 'Gửi hồ sơ xác thực'
               )}
@@ -829,7 +829,7 @@ export default function Profile() {
             <div>
               <DocumentUpload
                 label={`Ảnh mặt trước ${documentType.short}`}
-                hint="Ảnh dọc hoặc ngang, đủ sáng, thấy rõ số và họ tên"
+                hint="Ảnh dọc hoặc ngang, đủ sáng, không bị che khuất"
                 value={kycForm.front_image}
                 busy={kycImageBusy === 'front'}
                 onChange={pickKycImage('front')}
@@ -840,7 +840,7 @@ export default function Profile() {
             <div>
               <DocumentUpload
                 label={documentType.backRequired ? `Ảnh mặt sau ${documentType.short}` : 'Ảnh mặt sau (không bắt buộc)'}
-                hint={documentType.backRequired ? 'Cần thấy rõ mã MRZ hoặc thông tin mặt sau' : 'Có thể bổ sung nếu giấy tờ có mặt sau'}
+                hint={documentType.backRequired ? 'Ảnh mặt sau rõ nét, không bị che khuất' : 'Có thể bổ sung nếu giấy tờ có mặt sau'}
                 value={kycForm.back_image}
                 busy={kycImageBusy === 'back'}
                 onChange={pickKycImage('back')}

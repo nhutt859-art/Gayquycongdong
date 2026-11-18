@@ -79,8 +79,5 @@ export function kycErrorMessage(err) {
   if (code === 'KYC_DOCUMENT_USED') {
     return `${err.message} Nếu giấy tờ đã từng được xác thực, hãy liên hệ quản trị viên để được hỗ trợ.`;
   }
-  if (code === 'KYC_OCR_FAILED' || code === 'KYC_OCR_UNREADABLE' || code === 'KYC_OCR_TIMEOUT') {
-    return `${err.message} Ảnh cần rõ nét, đủ sáng, không lóa và thấy rõ số giấy tờ cùng họ tên.`;
-  }
   return err?.message || 'Không gửi được hồ sơ KYC.';
 }
